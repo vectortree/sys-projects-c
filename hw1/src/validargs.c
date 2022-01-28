@@ -79,7 +79,7 @@ int equals(char *a, char *b) {
 int valid_int_string_rep(char *a) {
     // This function checks if the string s is a "valid" string.
     // A "valid" string for our purposes is a string representation
-    // of an int from 0 to 127.
+    // of an int from 0x0 to 0xff.
     // It returns x if it is valid and -1 otherwise.
     char *s = a;
     int length = 0;
