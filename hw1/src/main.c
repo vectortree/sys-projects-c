@@ -17,13 +17,22 @@
 #error "Do not #include <ctype.h>. You will get a ZERO."
 #endif
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     if(validargs(argc, argv))
         USAGE(*argv, EXIT_FAILURE);
     if(global_options == HELP_OPTION)
         USAGE(*argv, EXIT_SUCCESS);
     // TO BE IMPLEMENTED
+    if(global_options == VALIDATE_OPTION)
+        if(argo_read_value(stdin) != NULL)
+            return EXIT_SUCCESS;
+    if((global_options & CANONICALIZE_OPTION) == CANONICALIZE_OPTION) {
+        ARGO_VALUE *value = argo_read_value(stdin);
+        if(value != NULL) {
+            argo_write_value(value, stdout);
+            return EXIT_SUCCESS;
+        }
+    }
     return EXIT_FAILURE;
 }
 

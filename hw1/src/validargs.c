@@ -4,7 +4,6 @@
 #include "global.h"
 #include "debug.h"
 
-int validargs(int argc, char **argv);
 int equals(char *a, char *b);
 int valid_int_string_rep(char *a);
 int convert_string_to_int(char *a);
@@ -45,17 +44,18 @@ int validargs(int argc, char **argv) {
         global_options = CANONICALIZE_OPTION;
         if(argc == 2)
             return 0;
-        if(equals(*(argv + 2), "-p"))
+        if(equals(*(argv + 2), "-p")) {
             global_options |= PRETTY_PRINT_OPTION;
-        if(argc == 3) {
-            global_options |= 4;
+            if(argc == 3) {
+                global_options |= 4;
+                return 0;
+            }
+            int indent = valid_int_string_rep(*(argv + 3));
+            if(indent == -1)
+                return -1;
+            global_options |= indent;
             return 0;
         }
-        int indent = valid_int_string_rep(*(argv + 3));
-        if(indent == -1)
-            return -1;
-        global_options |= indent;
-        return 0;
     }
     return -1;
 }
