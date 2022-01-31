@@ -4,11 +4,12 @@
 #include "global.h"
 #include "debug.h"
 
-int equals(char *a, char *b);
-int valid_int_string_rep(char *a);
-int convert_string_to_int(char *a);
-int only_digits(char *a);
-int valid_byte_range(int x);
+int validargs(int, char **);
+int equals(char *, char *);
+int valid_int_string_rep(char *);
+int convert_string_to_int(char *);
+int only_digits(char *);
+int valid_byte_range(int);
 
 /**
  * @brief Validates command line arguments passed to the program.
@@ -61,58 +62,44 @@ int validargs(int argc, char **argv) {
 }
 
 int equals(char *a, char *b) {
-    // The condition of the while loop checks if the character
-    // that s1 points to is equal to the character that s2 points to.
-    // Stopping criteria: Strings are null-terminated.
-    // We use pointer arithmetic to advance s1 and s2 character by character.
-    char *s1 = a;
-    char *s2 = b;
-    while(*s1 == *s2) {
-        if(*s1 == '\0')
+    int i = 0;
+    int j = 0;
+    while(*(a + i) == *(b + i)) {
+        if(*(a + i) == '\0')
             return 1;
-        ++s1;
-        ++s2;
+        ++i;
+        ++j;
     }
     return 0;
 }
 
 int valid_int_string_rep(char *a) {
-    // This function checks if the string s is a "valid" string.
+    // This function checks if the string a is a "valid" string.
     // A "valid" string for our purposes is a string representation
     // of an int from 0x0 to 0xff.
     // It returns x if it is valid and -1 otherwise.
-    char *s = a;
     int length = 0;
-    while(*s != '\0') {
+    while(*(a + length) != '\0')
         ++length;
-        ++s;
-    }
-    s = a;
     if(length > 3)
         return -1;
-    if(!only_digits(s))
+    if(!only_digits(a))
         return -1;
-    int x = convert_string_to_int(s);
+    int x = convert_string_to_int(a);
     if(!valid_byte_range(x))
         return -1;
     return x;
 }
 
 int convert_string_to_int(char *a) {
-    char *s = a;
     int x = 0;
     int i = 0;
     int d = 1;
-    while(*s != '\0') {
+    while(*(a + i) != '\0')
         ++i;
-        ++s;
-    }
-    --s;
     while(i > 0) {
-        x += d * (*s - 48);
+        x += d * (*(a + --i) - 48);
         d *= 10;
-        --i;
-        --s;
     }
     return x;
 }
@@ -123,15 +110,15 @@ int only_digits(char *a) {
     // (2) the string s is not empty, and
     // (3) the string s contains only numerical characters (0-9)
     //     except for the null termination character.
-    char *s = a;
-    if(s == NULL)
+    if(a == NULL)
         return 0;
-    if(*s == '\0')
+    if(*a == '\0')
         return 0;
-    while(*s != '\0') {
-        if(*s < '0' || *s > '9')
+    int i = 0;
+    while(*(a + i) != '\0') {
+        if(*(a + i) < '0' || *(a + i) > '9')
             return 0;
-        ++s;
+        ++i;
     }
     return 1;
 }

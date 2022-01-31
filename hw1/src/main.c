@@ -29,8 +29,8 @@ int main(int argc, char **argv) {
     if((global_options & CANONICALIZE_OPTION) == CANONICALIZE_OPTION) {
         ARGO_VALUE *value = argo_read_value(stdin);
         if(value != NULL) {
-            argo_write_value(value, stdout);
-            return EXIT_SUCCESS;
+            if(!argo_write_value(value, stdout))
+                return EXIT_SUCCESS;
         }
     }
     return EXIT_FAILURE;
