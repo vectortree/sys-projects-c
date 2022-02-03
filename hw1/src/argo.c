@@ -96,22 +96,72 @@ int argo_value_helper(ARGO_CHAR *c, ARGO_VALUE **value, FILE *f) {
     ++argo_chars_read;
     // ARGO_BASIC
     if(*c == ARGO_T || *c == ARGO_F || *c == ARGO_N) {
+        ARGO_CHAR token = *c;
         ungetc(*c, f);
         if(argo_read_basic(&(*value)->content.basic, f)) {
             *value = NULL;
             return -1;
         }
-        (*value)->type = ARGO_BASIC_TYPE;
-        return 0;
+        *c = fgetc(f);
+        next_char(c, f);
+        if((indent_level == 0 && *c == EOF) || (indent_level > 0 && (*c == ARGO_RBRACE || *c == ARGO_RBRACK || *c == ARGO_COMMA))) {
+            ungetc(*c, f);
+            (*value)->type = ARGO_BASIC_TYPE;
+            return 0;
+        }
+        if(eof(*c)) {
+            *value = NULL;
+            return -1;
+        }
+        ++argo_chars_read;
+        if(argo_is_control(*c)) {
+            if(token == ARGO_T)
+                fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) after token '%s'.\n", argo_lines_read, argo_chars_read, *c, ARGO_TRUE_TOKEN);
+            else if(token == ARGO_F)
+                fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) after token '%s'.\n", argo_lines_read, argo_chars_read, *c, ARGO_FALSE_TOKEN);
+            else
+                fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) after token '%s'.\n", argo_lines_read, argo_chars_read, *c, ARGO_NULL_TOKEN);
+        }
+        else {
+            if(token == ARGO_T)
+                fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) after token '%s'.\n", argo_lines_read, argo_chars_read, *c, *c, ARGO_TRUE_TOKEN);
+            else if(token == ARGO_F)
+                fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) after token '%s'.\n", argo_lines_read, argo_chars_read, *c, *c, ARGO_FALSE_TOKEN);
+            else
+                fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) after token '%s'.\n", argo_lines_read, argo_chars_read, *c, *c, ARGO_NULL_TOKEN);
+        }
+        *value = NULL;
+        return -1;
     }
     // ARGO_STRING
     if(*c == ARGO_QUOTE) {
+        ungetc(*c, f);
         if(argo_read_string(&(*value)->content.string, f)) {
             *value = NULL;
             return -1;
         }
-        (*value)->type = ARGO_STRING_TYPE;
-        return 0;
+        // Check if next non-whitespace token is valid,
+        // i.e., it is EOF for top indent level or
+        // ':' after name of object member, ',', ']', '}'
+        // after array element or object member value.
+        *c = fgetc(f);
+        next_char(c, f);
+        if((indent_level == 0 && *c == EOF) || (indent_level > 0 && (*c == ARGO_COLON || *c == ARGO_COMMA || *c == ARGO_RBRACE || *c == ARGO_RBRACK))) {
+            ungetc(*c, f);
+            (*value)->type = ARGO_STRING_TYPE;
+            return 0;
+        }
+        if(eof(*c)) {
+            *value = NULL;
+            return -1;
+        }
+        ++argo_chars_read;
+        if(argo_is_control(*c))
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) after string.\n", argo_lines_read, argo_chars_read, *c);
+        else
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) after string.\n", argo_lines_read, argo_chars_read, *c, *c);
+        *value = NULL;
+        return -1;
     }
     // ARGO_NUMBER
     if(argo_is_digit(*c) || *c == ARGO_MINUS) {
@@ -125,23 +175,60 @@ int argo_value_helper(ARGO_CHAR *c, ARGO_VALUE **value, FILE *f) {
     }
     // ARGO_ARRAY
     if(*c == ARGO_LBRACK) {
+        ungetc(*c, f);
         if(argo_read_array(&(*value)->content.array, f)) {
             *value = NULL;
             return -1;
         }
-        (*value)->type = ARGO_ARRAY_TYPE;
-        return 0;
+        *c = fgetc(f);
+        next_char(c, f);
+        if((indent_level == 0 && *c == EOF) || (indent_level > 0 && (*c == ARGO_COMMA || *c == ARGO_RBRACE || *c == ARGO_RBRACK))) {
+            ungetc(*c, f);
+            (*value)->type = ARGO_ARRAY_TYPE;
+            return 0;
+        }
+        if(eof(*c)) {
+            *value = NULL;
+            return -1;
+        }
+        ++argo_chars_read;
+        if(argo_is_control(*c))
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) after array.\n", argo_lines_read, argo_chars_read, *c);
+        else
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) after array.\n", argo_lines_read, argo_chars_read, *c, *c);
+        *value = NULL;
+        return -1;
     }
     // ARGO_OBJECT
     if(*c == ARGO_LBRACE) {
+        ungetc(*c, f);
         if(argo_read_object(&(*value)->content.object, f)) {
             *value = NULL;
             return -1;
         }
-        (*value)->type = ARGO_OBJECT_TYPE;
-        return 0;
+        *c = fgetc(f);
+        next_char(c, f);
+        if((indent_level == 0 && *c == EOF) || (indent_level > 0 && (*c == ARGO_COMMA || *c == ARGO_RBRACE || *c == ARGO_RBRACK))) {
+            ungetc(*c, f);
+            (*value)->type = ARGO_OBJECT_TYPE;
+            return 0;
+        }
+        if(eof(*c)) {
+            *value = NULL;
+            return -1;
+        }
+        ++argo_chars_read;
+        if(argo_is_control(*c))
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) after object.\n", argo_lines_read, argo_chars_read, *c);
+        else
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) after object.\n", argo_lines_read, argo_chars_read, *c, *c);
+        *value = NULL;
+        return -1;
     }
-    fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) at start of value.\n", argo_lines_read, argo_chars_read, *c, *c);
+    if(argo_is_control(*c))
+        fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) at start of value.\n", argo_lines_read, argo_chars_read, *c);
+    else
+        fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) at start of value.\n", argo_lines_read, argo_chars_read, *c, *c);
     *value = NULL;
     return -1;
 }
@@ -155,47 +242,51 @@ int eof(ARGO_CHAR c) {
 }
 
 void print_char_err(ARGO_CHAR c1, ARGO_CHAR c2, char *c) {
-    fprintf(stderr, "[%d:%d] ERROR: Expected '%c' (%d) but got '%c' (%d) for token '%s'.\n", argo_lines_read, argo_chars_read, c1, c1, c2, c2, c);
+    if(argo_is_control(c2))
+        fprintf(stderr, "[%d:%d] ERROR: Expected '%c' (%d) but got control character (%d) for token '%s'.\n", argo_lines_read, argo_chars_read, c1, c1, c2, c);
+    else
+        fprintf(stderr, "[%d:%d] ERROR: Expected '%c' (%d) but got '%c' (%d) for token '%s'.\n", argo_lines_read, argo_chars_read, c1, c1, c2, c2, c);
 }
 
-int argo_read_basic_helper(ARGO_CHAR *c, FILE *f, ARGO_BASIC *b, char *token, ARGO_BASIC type) {
+int argo_read_basic_helper(ARGO_CHAR *c, FILE *f, ARGO_BASIC **b, char *token, ARGO_BASIC type) {
     for(int i = 1; *(token + i) != '\0'; ++i) {
         *c = fgetc(f);
-        if(eof(*c))
+        if(eof(*c)) {
+            *b = NULL;
             return -1;
+        }
         ++argo_chars_read;
         if(*c != *(token + i)) {
             print_char_err(*(token + i), *c, token);
+            *b = NULL;
             return -1;
         }
     }
-    *c = fgetc(f);
-    next_char(c, f);
-    if((indent_level == 0 && *c == EOF) || (indent_level > 0 && (*c == ARGO_RBRACE || *c == ARGO_RBRACK || *c == ARGO_COMMA))) {
-        ungetc(*c, f);
-        *b = type;
-        return 0;
-    }
-    if(eof(*c))
-        return -1;
-    ++argo_chars_read;
-    fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) after token '%s'.\n", argo_lines_read, argo_chars_read, *c, *c, token);
-    return -1;
+    **b = type;
+    return 0;
 }
 
 int argo_read_basic(ARGO_BASIC *b, FILE *f) {
     ARGO_CHAR c = fgetc(f);
     if(c == ARGO_N)
-        return argo_read_basic_helper(&c, f, b, ARGO_NULL_TOKEN, ARGO_NULL);
+        return argo_read_basic_helper(&c, f, &b, ARGO_NULL_TOKEN, ARGO_NULL);
     if(c == ARGO_T)
-        return argo_read_basic_helper(&c, f, b, ARGO_TRUE_TOKEN, ARGO_TRUE);
+        return argo_read_basic_helper(&c, f, &b, ARGO_TRUE_TOKEN, ARGO_TRUE);
     if(c == ARGO_F)
-        return argo_read_basic_helper(&c, f, b, ARGO_FALSE_TOKEN, ARGO_FALSE);
+        return argo_read_basic_helper(&c, f, &b, ARGO_FALSE_TOKEN, ARGO_FALSE);
+    if(argo_is_control(c))
+        fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) at start of value.\n", argo_lines_read, argo_chars_read, c);
+    else
+        fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) at start of value.\n", argo_lines_read, argo_chars_read, c, c);
+    b = NULL;
     return -1;
 }
 
 void print_err(ARGO_CHAR c, char *type) {
-    fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) in %s.\n", argo_lines_read, argo_chars_read, c, c, type);
+    if(argo_is_control(c))
+        fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) in %s.\n", argo_lines_read, argo_chars_read, c, type);
+    else
+        fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) in %s.\n", argo_lines_read, argo_chars_read, c, c, type);
 }
 
 /**
@@ -219,6 +310,15 @@ void print_err(ARGO_CHAR c, char *type) {
 int argo_read_string(ARGO_STRING *s, FILE *f) {
     // TO BE IMPLEMENTED.
     ARGO_CHAR c = fgetc(f);
+    if(c != ARGO_QUOTE) {
+        if(argo_is_control(c))
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) at start of value.\n", argo_lines_read, argo_chars_read, c);
+        else
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) at start of value.\n", argo_lines_read, argo_chars_read, c, c);
+        s = NULL;
+        return -1;
+    }
+    c = fgetc(f);
     while(c != ARGO_QUOTE) {
         if(eof(c)) {
             s = NULL;
@@ -297,24 +397,7 @@ int argo_read_string(ARGO_STRING *s, FILE *f) {
         c = fgetc(f);
     }
     ++argo_chars_read;
-    // Check if next non-whitespace token is valid,
-    // i.e., it is EOF for top indent level or
-    // ':' after name of object member, ',', ']', '}'
-    // after array element or object member value.
-    c = fgetc(f);
-    next_char(&c, f);
-    if((indent_level == 0 && c == EOF) || (indent_level > 0 && (c == ARGO_COLON || c == ARGO_COMMA || c == ARGO_RBRACE || c == ARGO_RBRACK))) {
-        ungetc(c, f);
-        return 0;
-    }
-    if(eof(c)) {
-        s = NULL;
-        return -1;
-    }
-    ++argo_chars_read;
-    fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) after string.\n", argo_lines_read, argo_chars_read, c, c);
-    s = NULL;
-    return -1;
+    return 0;
 }
 
 /**
@@ -341,10 +424,20 @@ int argo_read_string(ARGO_STRING *s, FILE *f) {
  */
 int argo_read_number(ARGO_NUMBER *n, FILE *f) {
     // TO BE IMPLEMENTED.
+    ARGO_CHAR c = fgetc(f);
     return 0;
 }
 
 int argo_read_array(ARGO_ARRAY *a, FILE *f) {
+    ARGO_CHAR c = fgetc(f);
+    if(c != ARGO_LBRACK) {
+        if(argo_is_control(c))
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) at start of value.\n", argo_lines_read, argo_chars_read, c);
+        else
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) at start of value.\n", argo_lines_read, argo_chars_read, c, c);
+        a = NULL;
+        return -1;
+    }
     if(argo_next_value == NUM_ARGO_VALUES) {
         fprintf(stderr, "ERROR: Out of memory. (Value capacity: %d.)\n", NUM_ARGO_VALUES);
         a = NULL;
@@ -354,7 +447,7 @@ int argo_read_array(ARGO_ARRAY *a, FILE *f) {
     a->element_list = argo_value_storage + argo_next_value++;
     a->element_list->next = a->element_list;
     a->element_list->prev = a->element_list;
-    ARGO_CHAR c = fgetc(f);
+    c = fgetc(f);
     next_char(&c, f);
     while(c != ARGO_RBRACK) {
         if(eof(c)) {
@@ -393,20 +486,7 @@ int argo_read_array(ARGO_ARRAY *a, FILE *f) {
     }
     // If end of array, then decrement indent level by one
     --indent_level;
-    c = fgetc(f);
-    next_char(&c, f);
-    if((indent_level == 0 && c == EOF) || (indent_level > 0 && (c == ARGO_COMMA || c == ARGO_RBRACE || c == ARGO_RBRACK))) {
-        ungetc(c, f);
-        return 0;
-    }
-    if(eof(c)) {
-        a = NULL;
-        return -1;
-    }
-    ++argo_chars_read;
-    fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) after array.\n", argo_lines_read, argo_chars_read, c, c);
-    a = NULL;
-    return -1;
+    return 0;
 }
 
 void add_node(ARGO_VALUE **sentinel, ARGO_VALUE **value) {
@@ -417,6 +497,15 @@ void add_node(ARGO_VALUE **sentinel, ARGO_VALUE **value) {
 }
 
 int argo_read_object(ARGO_OBJECT *o, FILE *f) {
+    ARGO_CHAR c = fgetc(f);
+    if(c != ARGO_LBRACE) {
+        if(argo_is_control(c))
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) at start of value.\n", argo_lines_read, argo_chars_read, c);
+        else
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) at start of value.\n", argo_lines_read, argo_chars_read, c, c);
+        o = NULL;
+        return -1;
+    }
     if(argo_next_value == NUM_ARGO_VALUES) {
         fprintf(stderr, "ERROR: Out of memory. (Value capacity: %d.)\n", NUM_ARGO_VALUES);
         o = NULL;
@@ -426,7 +515,7 @@ int argo_read_object(ARGO_OBJECT *o, FILE *f) {
     o->member_list = argo_value_storage + argo_next_value++;
     o->member_list->next = o->member_list;
     o->member_list->prev = o->member_list;
-    ARGO_CHAR c = fgetc(f);
+    c = fgetc(f);
     next_char(&c, f);
     while(c != ARGO_RBRACE) {
         if(eof(c)) {
@@ -435,7 +524,10 @@ int argo_read_object(ARGO_OBJECT *o, FILE *f) {
         }
         ++argo_chars_read;
         if(c != ARGO_QUOTE) {
-            fprintf(stderr, "[%d:%d] ERROR: Expected '%c' (%d) but got '%c' (%d) for object member.\n", argo_lines_read, argo_chars_read, ARGO_QUOTE, ARGO_QUOTE, c, c);
+            if(argo_is_control(c))
+                fprintf(stderr, "[%d:%d] ERROR: Expected '%c' (%d) but got control character (%d) for object member.\n", argo_lines_read, argo_chars_read, ARGO_QUOTE, ARGO_QUOTE, c);
+            else
+                fprintf(stderr, "[%d:%d] ERROR: Expected '%c' (%d) but got '%c' (%d) for object member.\n", argo_lines_read, argo_chars_read, ARGO_QUOTE, ARGO_QUOTE, c, c);
             o = NULL;
             return -1;
         }
@@ -445,6 +537,7 @@ int argo_read_object(ARGO_OBJECT *o, FILE *f) {
             return -1;
         }
         ARGO_VALUE *value = argo_value_storage + argo_next_value++;
+        ungetc(c, f);
         if(argo_read_string(&value->name, f)) {
             o = NULL;
             return -1;
@@ -457,7 +550,10 @@ int argo_read_object(ARGO_OBJECT *o, FILE *f) {
         }
         ++argo_chars_read;
         if(c != ARGO_COLON) {
-            fprintf(stderr, "[%d:%d] ERROR: Expected '%c' (%d) but got '%c' (%d) for object member.\n", argo_lines_read, argo_chars_read, ARGO_COLON, ARGO_COLON, c, c);
+            if(argo_is_control(c))
+                fprintf(stderr, "[%d:%d] ERROR: Expected '%c' (%d) but got control character (%d) for object member.\n", argo_lines_read, argo_chars_read, ARGO_COLON, ARGO_COLON, c);
+            else
+                fprintf(stderr, "[%d:%d] ERROR: Expected '%c' (%d) but got '%c' (%d) for object member.\n", argo_lines_read, argo_chars_read, ARGO_COLON, ARGO_COLON, c, c);
             o = NULL;
             return -1;
         }
@@ -498,20 +594,7 @@ int argo_read_object(ARGO_OBJECT *o, FILE *f) {
     }
     // If end of object, then decrement indent level by one
     --indent_level;
-    c = fgetc(f);
-    next_char(&c, f);
-    if((indent_level == 0 && c == EOF) || (indent_level > 0 && (c == ARGO_COMMA || c == ARGO_RBRACE || c == ARGO_RBRACK))) {
-        ungetc(c, f);
-        return 0;
-    }
-    if(eof(c)) {
-        o = NULL;
-        return -1;
-    }
-    ++argo_chars_read;
-    fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) after object.\n", argo_lines_read, argo_chars_read, c, c);
-    o = NULL;
-    return -1;
+    return 0;
 }
 
 /**
