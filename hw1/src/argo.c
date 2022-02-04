@@ -93,7 +93,6 @@ ARGO_VALUE *argo_value(FILE *f) {
 }
 
 int argo_value_helper(ARGO_CHAR *c, ARGO_VALUE **value, FILE *f) {
-    ++argo_chars_read;
     // ARGO_BASIC
     if(*c == ARGO_T || *c == ARGO_F || *c == ARGO_N) {
         ARGO_CHAR token = *c;
@@ -170,8 +169,24 @@ int argo_value_helper(ARGO_CHAR *c, ARGO_VALUE **value, FILE *f) {
             *value = NULL;
             return -1;
         }
-        (*value)->type = ARGO_NUMBER_TYPE;
-        return 0;
+        *c = fgetc(f);
+        next_char(c, f);
+        if((indent_level == 0 && *c == EOF) || (indent_level > 0 && (*c == ARGO_COMMA || *c == ARGO_RBRACE || *c == ARGO_RBRACK))) {
+            ungetc(*c, f);
+            (*value)->type = ARGO_NUMBER_TYPE;
+            return 0;
+        }
+        if(eof(*c)) {
+            *value = NULL;
+            return -1;
+        }
+        ++argo_chars_read;
+        if(argo_is_control(*c))
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) after number.\n", argo_lines_read, argo_chars_read, *c);
+        else
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) after number.\n", argo_lines_read, argo_chars_read, *c, *c);
+        *value = NULL;
+        return -1;
     }
     // ARGO_ARRAY
     if(*c == ARGO_LBRACK) {
@@ -225,6 +240,7 @@ int argo_value_helper(ARGO_CHAR *c, ARGO_VALUE **value, FILE *f) {
         *value = NULL;
         return -1;
     }
+    ++argo_chars_read;
     if(argo_is_control(*c))
         fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) at start of value.\n", argo_lines_read, argo_chars_read, *c);
     else
@@ -268,6 +284,11 @@ int argo_read_basic_helper(ARGO_CHAR *c, FILE *f, ARGO_BASIC **b, char *token, A
 
 int argo_read_basic(ARGO_BASIC *b, FILE *f) {
     ARGO_CHAR c = fgetc(f);
+    if(eof(c)) {
+        b = NULL;
+        return -1;
+    }
+    ++argo_chars_read;
     if(c == ARGO_N)
         return argo_read_basic_helper(&c, f, &b, ARGO_NULL_TOKEN, ARGO_NULL);
     if(c == ARGO_T)
@@ -310,6 +331,11 @@ void print_err(ARGO_CHAR c, char *type) {
 int argo_read_string(ARGO_STRING *s, FILE *f) {
     // TO BE IMPLEMENTED.
     ARGO_CHAR c = fgetc(f);
+    if(eof(c)) {
+        s = NULL;
+        return -1;
+    }
+    ++argo_chars_read;
     if(c != ARGO_QUOTE) {
         if(argo_is_control(c))
             fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) at start of value.\n", argo_lines_read, argo_chars_read, c);
@@ -425,11 +451,191 @@ int argo_read_string(ARGO_STRING *s, FILE *f) {
 int argo_read_number(ARGO_NUMBER *n, FILE *f) {
     // TO BE IMPLEMENTED.
     ARGO_CHAR c = fgetc(f);
+    if(eof(c)) {
+        n = NULL;
+        return -1;
+    }
+    ++argo_chars_read;
+    if(!argo_is_digit(c) && c != ARGO_MINUS) {
+        if(argo_is_control(c))
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) at start of value.\n", argo_lines_read, argo_chars_read, c);
+        else
+            fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) at start of value.\n", argo_lines_read, argo_chars_read, c, c);
+        n = NULL;
+        return -1;
+    }
+    n->valid_string = 1;
+    n->valid_float = 1;
+    n->valid_int = 1;
+    int num_of_digits = 0;
+    char negative = 0;
+    argo_append_char(&n->string_value, c);
+    if(c == ARGO_MINUS) {
+        negative = 1;
+        c = fgetc(f);
+        if(eof(c)) {
+            n = NULL;
+            return -1;
+        }
+        ++argo_chars_read;
+        if(!argo_is_digit(c)) {
+            if(argo_is_control(c))
+                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got control character (%d) in integer part of number.\n", argo_lines_read, argo_chars_read, c);
+            else
+                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got '%c' (%d) in integer part of number.\n", argo_lines_read, argo_chars_read, c, c);
+            n = NULL;
+            return -1;
+        }
+        argo_append_char(&n->string_value, c);
+    }
+    ++num_of_digits;
+    n->int_value = c - ARGO_DIGIT0;
+    if(c != ARGO_DIGIT0)
+        c = fgetc(f);
+    else {
+        while(c == ARGO_DIGIT0) {
+            c = fgetc(f);
+            if(c == ARGO_DIGIT0) {
+                ++argo_chars_read;
+                argo_append_char(&n->string_value, c);
+            }
+        }
+    }
+    while(argo_is_digit(c)) {
+        ++argo_chars_read;
+        ++num_of_digits;
+        n->int_value = n->int_value * 10 + (c - ARGO_DIGIT0);
+        argo_append_char(&n->string_value, c);
+        c = fgetc(f);
+    }
+    n->float_value = n->int_value;
+    if(negative)
+        n->int_value *= -1;
+    if(c == ARGO_PERIOD) {
+        ++argo_chars_read;
+        argo_append_char(&n->string_value, c);
+        n->valid_int = 0;
+        c = fgetc(f);
+        if(eof(c)) {
+            n = NULL;
+            return -1;
+        }
+        if(!argo_is_digit(c)) {
+            ++argo_chars_read;
+            if(argo_is_control(c))
+                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got control character (%d) in fractional part of number.\n", argo_lines_read, argo_chars_read, c);
+            else
+                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got '%c' (%d) in fractional part of number.\n", argo_lines_read, argo_chars_read, c, c);
+            n = NULL;
+            return -1;
+        }
+        int count = 0;
+        while(argo_is_digit(c)) {
+            ++argo_chars_read;
+            ++count;
+            n->float_value = n->float_value * 10 + (c - ARGO_DIGIT0);
+            argo_append_char(&n->string_value, c);
+            c = fgetc(f);
+        }
+        for(int i = 0; i < count; ++i)
+            n->float_value /= 10;
+    }
+    if(argo_is_exponent(c)) {
+        ++argo_chars_read;
+        argo_append_char(&n->string_value, c);
+        n->valid_int = 0;
+        c = fgetc(f);
+        if(eof(c)) {
+            n = NULL;
+            return -1;
+        }
+        ++argo_chars_read;
+        if(c != ARGO_MINUS && c != ARGO_PLUS && !argo_is_digit(c)) {
+            if(argo_is_control(c))
+                fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) for exponent.\n", argo_lines_read, argo_chars_read, c);
+            else
+                fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) for exponent.\n", argo_lines_read, argo_chars_read, c, c);
+            n = NULL;
+            return -1;
+        }
+        argo_append_char(&n->string_value, c);
+        if(c == ARGO_MINUS) {
+            c = fgetc(f);
+            if(eof(c)) {
+                n = NULL;
+                return -1;
+            }
+            ++argo_chars_read;
+            if(!argo_is_digit(c)) {
+                if(argo_is_control(c))
+                    fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got control character (%d) for exponent.\n", argo_lines_read, argo_chars_read, c);
+                else
+                    fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got '%c' (%d) for exponent.\n", argo_lines_read, argo_chars_read, c, c);
+                n = NULL;
+                return -1;
+            }
+            argo_append_char(&n->string_value, c);
+            int exp = c - ARGO_DIGIT0;
+            c = fgetc(f);
+            while(argo_is_digit(c)) {
+                exp = exp * 10 + (c - ARGO_DIGIT0);
+                ++argo_chars_read;
+                argo_append_char(&n->string_value, c);
+                c = fgetc(f);
+            }
+            for(int i = 0; i < exp; ++i)
+                n->float_value /= 10;
+        }
+        else {
+            if(c == ARGO_PLUS) {
+                c = fgetc(f);
+                if(eof(c)) {
+                    n = NULL;
+                    return -1;
+                }
+                ++argo_chars_read;
+                if(!argo_is_digit(c)) {
+                    if(argo_is_control(c))
+                        fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got control character (%d) for exponent.\n", argo_lines_read, argo_chars_read, c);
+                    else
+                        fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got '%c' (%d) for exponent.\n", argo_lines_read, argo_chars_read, c, c);
+                    n = NULL;
+                    return -1;
+                }
+                argo_append_char(&n->string_value, c);
+            }
+            int exp = c - ARGO_DIGIT0;
+            c = fgetc(f);
+            while(argo_is_digit(c)) {
+                exp = exp * 10 + (c - ARGO_DIGIT0);
+                ++argo_chars_read;
+                argo_append_char(&n->string_value, c);
+                c = fgetc(f);
+            }
+            for(int i = 0; i < exp; ++i)
+                n->float_value *= 10;
+        }
+    }
+    if(n->valid_int && num_of_digits > ARGO_MAX_DIGITS) {
+        fprintf(stderr, "[%d:%d] ERROR: Exceeded maximum digit capacity (%d) for number.\n", argo_lines_read, argo_chars_read, ARGO_MAX_DIGITS);
+        n = NULL;
+        return -1;
+    }
+    if(!n->valid_int)
+        n->int_value = 0;
+    if(negative)
+        n->float_value *= -1;
+    ungetc(c, f);
     return 0;
 }
 
 int argo_read_array(ARGO_ARRAY *a, FILE *f) {
     ARGO_CHAR c = fgetc(f);
+    if(eof(c)) {
+        a = NULL;
+        return -1;
+    }
+    ++argo_chars_read;
     if(c != ARGO_LBRACK) {
         if(argo_is_control(c))
             fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) at start of value.\n", argo_lines_read, argo_chars_read, c);
@@ -498,6 +704,11 @@ void add_node(ARGO_VALUE **sentinel, ARGO_VALUE **value) {
 
 int argo_read_object(ARGO_OBJECT *o, FILE *f) {
     ARGO_CHAR c = fgetc(f);
+    if(eof(c)) {
+        o = NULL;
+        return -1;
+    }
+    ++argo_chars_read;
     if(c != ARGO_LBRACE) {
         if(argo_is_control(c))
             fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) at start of value.\n", argo_lines_read, argo_chars_read, c);
@@ -522,7 +733,6 @@ int argo_read_object(ARGO_OBJECT *o, FILE *f) {
             o = NULL;
             return -1;
         }
-        ++argo_chars_read;
         if(c != ARGO_QUOTE) {
             if(argo_is_control(c))
                 fprintf(stderr, "[%d:%d] ERROR: Expected '%c' (%d) but got control character (%d) for object member.\n", argo_lines_read, argo_chars_read, ARGO_QUOTE, ARGO_QUOTE, c);
@@ -610,7 +820,11 @@ int argo_read_object(ARGO_OBJECT *o, FILE *f) {
  * @return  Zero if the operation is completely successful,
  * nonzero if there is any error.
  */
-/*int argo_write_value(ARGO_VALUE *v, FILE *f) {
+int argo_write_value(ARGO_VALUE *v, FILE *f) {
+    printf("double: %.*f\n", ARGO_PRECISION, v->content.number.float_value);
+    printf("long: %ld\n", v->content.number.int_value);
+    printf("string: %ls\n", v->content.number.string_value.content);
+    return 0;
     // TO BE IMPLEMENTED.
     if(v->type == ARGO_BASIC_TYPE)
         return argo_write_basic(&v->content.basic, f);
@@ -623,7 +837,7 @@ int argo_read_object(ARGO_OBJECT *o, FILE *f) {
     if(v->type == ARGO_OBJECT_TYPE)
         return argo_write_object(&v->content.object, f);
     return -1;
-}*/
+}
 
 int argo_write_basic(ARGO_BASIC *b, FILE *f) {
     if(*b == ARGO_NULL) {

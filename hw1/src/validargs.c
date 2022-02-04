@@ -98,7 +98,7 @@ int convert_string_to_int(char *a) {
     while(*(a + i) != '\0')
         ++i;
     while(i > 0) {
-        x += d * (*(a + --i) - 48);
+        x += d * (*(a + --i) - '0');
         d *= 10;
     }
     return x;
@@ -106,9 +106,9 @@ int convert_string_to_int(char *a) {
 
 int only_digits(char *a) {
     // This function returns 1 if the following conditions hold:
-    // (1) The string s is not NULL,
-    // (2) the string s is not empty, and
-    // (3) the string s contains only numerical characters (0-9)
+    // (1) The string a is not NULL,
+    // (2) the string a is not empty, and
+    // (3) the string a contains only numerical characters (0-9)
     //     except for the null termination character.
     if(a == NULL)
         return 0;
