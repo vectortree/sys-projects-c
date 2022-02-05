@@ -860,8 +860,10 @@ int argo_write_value(ARGO_VALUE *v, FILE *f) {
 }
 
 int argo_write(ARGO_VALUE *v, FILE *f) {
-    if(v == NULL || f == NULL)
+    if(v == NULL || f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
         return -1;
+    }
     if(v->type == ARGO_BASIC_TYPE) {
         if(!argo_write_basic(&v->content.basic, f)) {
             if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION && indent_level == 0) {
@@ -907,8 +909,10 @@ int argo_write(ARGO_VALUE *v, FILE *f) {
 }
 
 int argo_write_basic(ARGO_BASIC *b, FILE *f) {
-    if(b == NULL || f == NULL)
+    if(b == NULL || f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
         return -1;
+    }
     if(*b == ARGO_NULL) {
         fprintf(f, "%s", ARGO_NULL_TOKEN);
         return 0;
@@ -947,8 +951,10 @@ int argo_write_basic(ARGO_BASIC *b, FILE *f) {
  */
 int argo_write_string(ARGO_STRING *s, FILE *f) {
     // TO BE IMPLEMENTED.
-    if(s == NULL || f == NULL)
+    if(s == NULL || f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
         return -1;
+    }
     fprintf(f, "%c", ARGO_QUOTE);
     ARGO_CHAR c;
     for(int i = 0; i < s->length; ++i) {
@@ -1001,8 +1007,10 @@ int argo_write_string(ARGO_STRING *s, FILE *f) {
  */
 int argo_write_number(ARGO_NUMBER *n, FILE *f) {
     // TO BE IMPLEMENTED.
-    if(n == NULL || f == NULL)
+    if(n == NULL || f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
         return -1;
+    }
     if(n->valid_int) {
         fprintf(f, "%ld", n->int_value);
         return 0;
@@ -1041,8 +1049,10 @@ int argo_write_number(ARGO_NUMBER *n, FILE *f) {
 }
 
 int argo_write_array(ARGO_ARRAY *a, FILE *f) {
-    if(a == NULL || f == NULL)
+    if(a == NULL || f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
         return -1;
+    }
     fprintf(f, "%c", ARGO_LBRACK);
     if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
         fprintf(f, "%c", ARGO_LF);
@@ -1078,8 +1088,10 @@ int argo_write_array(ARGO_ARRAY *a, FILE *f) {
 }
 
 int argo_write_object(ARGO_OBJECT *o, FILE *f) {
-    if(o == NULL || f == NULL)
+    if(o == NULL || f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
         return -1;
+    }
     fprintf(f, "%c", ARGO_LBRACE);
     if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
         fprintf(f, "%c", ARGO_LF);
