@@ -19,6 +19,8 @@ int argo_read_number(ARGO_NUMBER *, FILE *);
 int argo_read_array(ARGO_ARRAY *, FILE *);
 int argo_read_object(ARGO_OBJECT *, FILE *);
 int argo_read_member(ARGO_VALUE *, FILE *);
+int argo_write_value(ARGO_VALUE *, FILE *);
+int argo_write(ARGO_VALUE *, FILE *);
 int argo_write_basic(ARGO_BASIC *, FILE *);
 int argo_write_string(ARGO_STRING *, FILE *);
 int argo_write_number(ARGO_NUMBER *, FILE *);
@@ -75,6 +77,10 @@ void next_char(ARGO_CHAR *c, FILE *f) {
 }
 
 ARGO_VALUE *argo_value(FILE *f) {
+    if(f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        return NULL;
+    }
     if(argo_next_value == NUM_ARGO_VALUES) {
         fprintf(stderr, "ERROR: Out of memory. (Value capacity: %d.)\n", NUM_ARGO_VALUES);
         return NULL;
@@ -283,6 +289,11 @@ int argo_read_basic_helper(ARGO_CHAR *c, FILE *f, ARGO_BASIC **b, char *token, A
 }
 
 int argo_read_basic(ARGO_BASIC *b, FILE *f) {
+    if(b == NULL || f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        b = NULL;
+        return -1;
+    }
     ARGO_CHAR c = fgetc(f);
     if(eof(c)) {
         b = NULL;
@@ -330,6 +341,11 @@ void print_err(ARGO_CHAR c, char *type) {
  */
 int argo_read_string(ARGO_STRING *s, FILE *f) {
     // TO BE IMPLEMENTED.
+    if(s == NULL || f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        s = NULL;
+        return -1;
+    }
     ARGO_CHAR c = fgetc(f);
     if(eof(c)) {
         s = NULL;
@@ -450,6 +466,11 @@ int argo_read_string(ARGO_STRING *s, FILE *f) {
  */
 int argo_read_number(ARGO_NUMBER *n, FILE *f) {
     // TO BE IMPLEMENTED.
+    if(n == NULL || f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        n = NULL;
+        return -1;
+    }
     ARGO_CHAR c = fgetc(f);
     if(eof(c)) {
         n = NULL;
@@ -480,9 +501,9 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
         ++argo_chars_read;
         if(!argo_is_digit(c)) {
             if(argo_is_control(c))
-                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got control character (%d) in integer part of number.\n", argo_lines_read, argo_chars_read, c);
+                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got control character (%d) for number.\n", argo_lines_read, argo_chars_read, c);
             else
-                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got '%c' (%d) in integer part of number.\n", argo_lines_read, argo_chars_read, c, c);
+                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got '%c' (%d) for number.\n", argo_lines_read, argo_chars_read, c, c);
             n = NULL;
             return -1;
         }
@@ -493,13 +514,14 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
     if(c != ARGO_DIGIT0)
         c = fgetc(f);
     else {
-        while(c == ARGO_DIGIT0) {
-            c = fgetc(f);
-            if(c == ARGO_DIGIT0) {
-                ++argo_chars_read;
-                argo_append_char(&n->string_value, c);
-            }
+        c = fgetc(f);
+        if(argo_is_digit(c)) {
+            ++argo_chars_read;
+            fprintf(stderr, "[%d:%d] ERROR: Leading zeros in number.\n", argo_lines_read, argo_chars_read);
+            n = NULL;
+            return -1;
         }
+
     }
     while(argo_is_digit(c)) {
         ++argo_chars_read;
@@ -523,9 +545,9 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
         if(!argo_is_digit(c)) {
             ++argo_chars_read;
             if(argo_is_control(c))
-                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got control character (%d) in fractional part of number.\n", argo_lines_read, argo_chars_read, c);
+                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got control character (%d) for fractional part of number.\n", argo_lines_read, argo_chars_read, c);
             else
-                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got '%c' (%d) in fractional part of number.\n", argo_lines_read, argo_chars_read, c, c);
+                fprintf(stderr, "[%d:%d] ERROR: Expected a decimal digit but got '%c' (%d) for fractional part of number.\n", argo_lines_read, argo_chars_read, c, c);
             n = NULL;
             return -1;
         }
@@ -552,9 +574,9 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
         ++argo_chars_read;
         if(c != ARGO_MINUS && c != ARGO_PLUS && !argo_is_digit(c)) {
             if(argo_is_control(c))
-                fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) for exponent.\n", argo_lines_read, argo_chars_read, c);
+                fprintf(stderr, "[%d:%d] ERROR: Invalid character (%d) in exponent.\n", argo_lines_read, argo_chars_read, c);
             else
-                fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) for exponent.\n", argo_lines_read, argo_chars_read, c, c);
+                fprintf(stderr, "[%d:%d] ERROR: Invalid character '%c' (%d) in exponent.\n", argo_lines_read, argo_chars_read, c, c);
             n = NULL;
             return -1;
         }
@@ -630,6 +652,11 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
 }
 
 int argo_read_array(ARGO_ARRAY *a, FILE *f) {
+    if(a == NULL || f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        a = NULL;
+        return -1;
+    }
     ARGO_CHAR c = fgetc(f);
     if(eof(c)) {
         a = NULL;
@@ -703,6 +730,11 @@ void add_node(ARGO_VALUE **sentinel, ARGO_VALUE **value) {
 }
 
 int argo_read_object(ARGO_OBJECT *o, FILE *f) {
+    if(o == NULL || f == NULL) {
+        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        o = NULL;
+        return -1;
+    }
     ARGO_CHAR c = fgetc(f);
     if(eof(c)) {
         o = NULL;
@@ -821,25 +853,62 @@ int argo_read_object(ARGO_OBJECT *o, FILE *f) {
  * nonzero if there is any error.
  */
 int argo_write_value(ARGO_VALUE *v, FILE *f) {
-    printf("double: %.*f\n", ARGO_PRECISION, v->content.number.float_value);
-    printf("long: %ld\n", v->content.number.int_value);
-    printf("string: %ls\n", v->content.number.string_value.content);
-    return 0;
     // TO BE IMPLEMENTED.
-    if(v->type == ARGO_BASIC_TYPE)
-        return argo_write_basic(&v->content.basic, f);
-    if(v->type == ARGO_STRING_TYPE)
-        return argo_write_string(&v->content.string, f);
-    if(v->type == ARGO_NUMBER_TYPE)
-        return argo_write_number(&v->content.number, f);
-    if(v->type == ARGO_ARRAY_TYPE)
-        return argo_write_array(&v->content.array, f);
-    if(v->type == ARGO_OBJECT_TYPE)
-        return argo_write_object(&v->content.object, f);
+    // global_options & 0xff gives the number of spaces per indentation level
+    indent_level = 0;
+    return argo_write(v, f);
+}
+
+int argo_write(ARGO_VALUE *v, FILE *f) {
+    if(v == NULL || f == NULL)
+        return -1;
+    if(v->type == ARGO_BASIC_TYPE) {
+        if(!argo_write_basic(&v->content.basic, f)) {
+            if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION && indent_level == 0) {
+                fprintf(f, "\n");
+            }
+            return 0;
+        }
+    }
+    if(v->type == ARGO_STRING_TYPE) {
+        if(!argo_write_string(&v->content.string, f)) {
+            if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION && indent_level == 0) {
+                fprintf(f, "\n");
+            }
+            return 0;
+        }
+    }
+    if(v->type == ARGO_NUMBER_TYPE) {
+        if(!argo_write_number(&v->content.number, f)) {
+            if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION && indent_level == 0) {
+                fprintf(f, "%c", ARGO_LF);
+            }
+            return 0;
+        }
+    }
+    if(v->type == ARGO_ARRAY_TYPE) {
+        if(!argo_write_array(&v->content.array, f)) {
+            if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION && indent_level == 0) {
+                fprintf(f, "%c", ARGO_LF);
+            }
+            return 0;
+        }
+    }
+    if(v->type == ARGO_OBJECT_TYPE) {
+        if(!argo_write_object(&v->content.object, f)) {
+            if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION && indent_level == 0) {
+                fprintf(f, "%c", ARGO_LF);
+            }
+            return 0;
+        }
+    }
+    fprintf(stderr, "ERROR: Could not write to stream.\n");
     return -1;
 }
 
 int argo_write_basic(ARGO_BASIC *b, FILE *f) {
+    if(b == NULL || f == NULL)
+        return -1;
     if(*b == ARGO_NULL) {
         fprintf(f, "%s", ARGO_NULL_TOKEN);
         return 0;
@@ -852,6 +921,7 @@ int argo_write_basic(ARGO_BASIC *b, FILE *f) {
         fprintf(f, "%s", ARGO_FALSE_TOKEN);
         return 0;
     }
+    fprintf(stderr, "ERROR: Could not write to stream.\n");
     return -1;
 }
 
@@ -877,6 +947,37 @@ int argo_write_basic(ARGO_BASIC *b, FILE *f) {
  */
 int argo_write_string(ARGO_STRING *s, FILE *f) {
     // TO BE IMPLEMENTED.
+    if(s == NULL || f == NULL)
+        return -1;
+    fprintf(f, "%c", ARGO_QUOTE);
+    ARGO_CHAR c;
+    for(int i = 0; i < s->length; ++i) {
+        c = *(s->content + i);
+        if(c > 0xffff) {
+            fprintf(stderr, "ERROR: Could not write to stream.\n");
+            return -1;
+        }
+        if(c == ARGO_BSLASH)
+            fprintf(f, "%c%c", ARGO_BSLASH, ARGO_BSLASH);
+        else if(c == ARGO_QUOTE)
+            fprintf(f, "%c%c", ARGO_BSLASH, ARGO_QUOTE);
+        else if(c == ARGO_BS)
+            fprintf(f, "%c%c", ARGO_BSLASH, ARGO_B);
+        else if(c == ARGO_FF)
+            fprintf(f, "%c%c", ARGO_BSLASH, ARGO_F);
+        else if(c == ARGO_LF)
+            fprintf(f, "%c%c", ARGO_BSLASH, ARGO_N);
+        else if(c == ARGO_CR)
+            fprintf(f, "%c%c", ARGO_BSLASH, ARGO_R);
+        else if(c == ARGO_HT)
+            fprintf(f, "%c%c", ARGO_BSLASH, ARGO_T);
+        else if(c > 0x1f && c < 0xff)
+            fprintf(f, "%c", c);
+        else if (c >= 0xff || c <= 0x1f)
+            fprintf(f, "%c%c%04x", ARGO_BSLASH, ARGO_U, c);
+
+    }
+    fprintf(f, "%c", ARGO_QUOTE);
     return 0;
 }
 
@@ -900,13 +1001,125 @@ int argo_write_string(ARGO_STRING *s, FILE *f) {
  */
 int argo_write_number(ARGO_NUMBER *n, FILE *f) {
     // TO BE IMPLEMENTED.
-    return 0;
+    if(n == NULL || f == NULL)
+        return -1;
+    if(n->valid_int) {
+        fprintf(f, "%ld", n->int_value);
+        return 0;
+    }
+    else if(n->valid_float) {
+        double num = n->float_value;
+        long count = 0;
+        if(num > 0) {
+            while(num >= 1) {
+                ++count;
+                num /= 10;
+            }
+            while(num < 0.1) {
+                --count;
+                num *= 10;
+            }
+        }
+        else if(num < 0) {
+            while(num <= -1) {
+                ++count;
+                num /= 10;
+            }
+            while(num > -0.1) {
+                --count;
+                num *= 10;
+            }
+        }
+        if(count)
+            fprintf(f, "%.*lf%c%ld", ARGO_PRECISION, num, ARGO_E, count);
+        else
+            fprintf(f, "%.*lf", ARGO_PRECISION, num);
+        return 0;
+    }
+    fprintf(stderr, "ERROR: Could not write to stream.\n");
+    return -1;
 }
 
 int argo_write_array(ARGO_ARRAY *a, FILE *f) {
+    if(a == NULL || f == NULL)
+        return -1;
+    fprintf(f, "%c", ARGO_LBRACK);
+    if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
+        fprintf(f, "%c", ARGO_LF);
+        ++indent_level;
+        int num_of_spaces = indent_level * (global_options & 0xff);
+        for(int i = 0; i < num_of_spaces; ++i)
+            fprintf(f, "%c", ARGO_SPACE);
+    }
+    ARGO_VALUE *ptr = a->element_list->next;
+    while(ptr != a->element_list->prev) {
+        if(argo_write(ptr, f))
+            return -1;
+        fprintf(f, "%c", ARGO_COMMA);
+        if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
+            fprintf(f, "%c", ARGO_LF);
+            int num_of_spaces = indent_level * (global_options & 0xff);
+            for(int i = 0; i < num_of_spaces; ++i)
+                fprintf(f, "%c", ARGO_SPACE);
+        }
+        ptr = ptr->next;
+    }
+    if(argo_write(ptr, f))
+        return -1;
+    if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
+        fprintf(f, "%c", ARGO_LF);
+        --indent_level;
+        int num_of_spaces = indent_level * (global_options & 0xff);
+        for(int i = 0; i < num_of_spaces; ++i)
+            fprintf(f, "%c", ARGO_SPACE);
+    }
+    fprintf(f, "%c", ARGO_RBRACK);
     return 0;
 }
 
 int argo_write_object(ARGO_OBJECT *o, FILE *f) {
+    if(o == NULL || f == NULL)
+        return -1;
+    fprintf(f, "%c", ARGO_LBRACE);
+    if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
+        fprintf(f, "%c", ARGO_LF);
+        ++indent_level;
+        int num_of_spaces = indent_level * (global_options & 0xff);
+        for(int i = 0; i < num_of_spaces; ++i)
+            fprintf(f, "%c", ARGO_SPACE);
+    }
+    ARGO_VALUE *ptr = o->member_list->next;
+    while(ptr != o->member_list->prev) {
+        if(argo_write_string(&ptr->name, f))
+            return -1;
+        fprintf(f, "%c", ARGO_COLON);
+        if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION)
+            fprintf(f, "%c", ARGO_SPACE);
+        if(argo_write(ptr, f))
+            return -1;
+        fprintf(f, "%c", ARGO_COMMA);
+        if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
+            fprintf(f, "%c", ARGO_LF);
+            int num_of_spaces = indent_level * (global_options & 0xff);
+            for(int i = 0; i < num_of_spaces; ++i)
+                fprintf(f, "%c", ARGO_SPACE);
+        }
+        ptr = ptr->next;
+    }
+    if(argo_write_string(&ptr->name, f))
+        return -1;
+    fprintf(f, "%c", ARGO_COLON);
+    if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION)
+        fprintf(f, "%c", ARGO_SPACE);
+    if(argo_write(ptr, f))
+        return -1;
+    if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
+        fprintf(f, "%c", ARGO_LF);
+        --indent_level;
+        int num_of_spaces = indent_level * (global_options & 0xff);
+        for(int i = 0; i < num_of_spaces; ++i)
+            fprintf(f, "%c", ARGO_SPACE);
+    }
+    fprintf(f, "%c", ARGO_RBRACE);
     return 0;
 }
