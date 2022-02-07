@@ -1,5 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <limits.h>
+#include <float.h>
 
 #include "argo.h"
 #include "global.h"
@@ -488,7 +490,6 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
     n->valid_string = 1;
     n->valid_float = 1;
     n->valid_int = 1;
-    //int num_of_digits = 0;
     char negative = 0;
     argo_append_char(&n->string_value, c);
     if(c == ARGO_MINUS) {
@@ -509,8 +510,8 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
         }
         argo_append_char(&n->string_value, c);
     }
-    //++num_of_digits;
     n->int_value = c - ARGO_DIGIT0;
+    n->float_value = n->int_value;
     if(c != ARGO_DIGIT0)
         c = fgetc(f);
     else {
@@ -523,14 +524,25 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
         }
 
     }
+    char int_overflow = 0;
+    char float_overflow = 0;
+    char int_underflow = 0;
+    char float_underflow = 0;
     while(argo_is_digit(c)) {
         ++argo_chars_read;
-        //++num_of_digits;
         n->int_value = n->int_value * 10 + (c - ARGO_DIGIT0);
+        if(negative && (-1 * n->int_value) < INT_MIN)
+            int_underflow = 1;
+        if(!negative && n->int_value > INT_MAX)
+            int_overflow = 1;
+        n->float_value = n->float_value * 10 + (c - ARGO_DIGIT0);
+        if(negative && n->float_value > FLT_MAX)
+            float_underflow = 1;
+        if(!negative && n->float_value > FLT_MAX)
+            float_overflow = 1;
         argo_append_char(&n->string_value, c);
         c = fgetc(f);
     }
-    n->float_value = n->int_value;
     if(negative)
         n->int_value *= -1;
     if(c == ARGO_PERIOD) {
@@ -556,11 +568,20 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
             ++argo_chars_read;
             ++count;
             n->float_value = n->float_value * 10 + (c - ARGO_DIGIT0);
+            if(negative && n->float_value > FLT_MAX)
+                float_underflow = 1;
+            if(!negative && n->float_value > FLT_MAX)
+                float_overflow = 1;
             argo_append_char(&n->string_value, c);
             c = fgetc(f);
         }
-        for(int i = 0; i < count; ++i)
+        for(int i = 0; i < count; ++i) {
             n->float_value /= 10;
+            if(negative && n->float_value > FLT_MAX)
+                float_underflow = 1;
+            if(!negative && n->float_value > FLT_MAX)
+                float_overflow = 1;
+        }
     }
     if(argo_is_exponent(c)) {
         ++argo_chars_read;
@@ -597,16 +618,26 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
                 return -1;
             }
             argo_append_char(&n->string_value, c);
-            int exp = c - ARGO_DIGIT0;
+            long exp = c - ARGO_DIGIT0;
             c = fgetc(f);
             while(argo_is_digit(c)) {
                 exp = exp * 10 + (c - ARGO_DIGIT0);
+                if((-1 * exp) < INT_MIN) {
+                    fprintf(stderr, "[%d:%d] ERROR: Underflow in exponent.\n", argo_lines_read, argo_chars_read);
+                    n = NULL;
+                    return -1;
+                }
                 ++argo_chars_read;
                 argo_append_char(&n->string_value, c);
                 c = fgetc(f);
             }
-            for(int i = 0; i < exp; ++i)
+            for(int i = 0; i < exp; ++i) {
                 n->float_value /= 10;
+                if(negative && n->float_value > FLT_MAX)
+                    float_underflow = 1;
+                if(!negative && n->float_value > FLT_MAX)
+                    float_overflow = 1;
+            }
         }
         else {
             if(c == ARGO_PLUS) {
@@ -626,23 +657,38 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
                 }
                 argo_append_char(&n->string_value, c);
             }
-            int exp = c - ARGO_DIGIT0;
+            long exp = c - ARGO_DIGIT0;
             c = fgetc(f);
             while(argo_is_digit(c)) {
                 exp = exp * 10 + (c - ARGO_DIGIT0);
+                if(exp > INT_MAX) {
+                    fprintf(stderr, "[%d:%d] ERROR: Overflow in exponent.\n", argo_lines_read, argo_chars_read);
+                    n = NULL;
+                    return -1;
+                }
                 ++argo_chars_read;
                 argo_append_char(&n->string_value, c);
                 c = fgetc(f);
             }
-            for(int i = 0; i < exp; ++i)
+            for(int i = 0; i < exp; ++i) {
                 n->float_value *= 10;
+                if(negative && n->float_value > FLT_MAX)
+                    float_underflow = 1;
+                if(!negative && n->float_value > FLT_MAX)
+                    float_overflow = 1;
+            }
         }
     }
-    /*if(n->valid_int && num_of_digits > ARGO_MAX_DIGITS) {
-        fprintf(stderr, "[%d:%d] ERROR: Exceeded maximum digit capacity (%d) for number.\n", argo_lines_read, argo_chars_read, ARGO_MAX_DIGITS);
+    if(int_overflow || float_overflow) {
+        fprintf(stderr, "[%d:%d] ERROR: Overflow in number.\n", argo_lines_read, argo_chars_read);
         n = NULL;
         return -1;
-    }*/
+    }
+    if(int_underflow || float_underflow) {
+        fprintf(stderr, "[%d:%d] ERROR: Underflow in number.\n", argo_lines_read, argo_chars_read);
+        n = NULL;
+        return -1;
+    }
     if(!n->valid_int)
         n->int_value = 0;
     if(negative)
@@ -861,7 +907,7 @@ int argo_write_value(ARGO_VALUE *v, FILE *f) {
 
 int argo_write(ARGO_VALUE *v, FILE *f) {
     if(v == NULL || f == NULL) {
-        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        fprintf(stderr, "[Write] ERROR: Null pointer argument.\n");
         return -1;
     }
     if(v->type == ARGO_BASIC_TYPE) {
@@ -904,13 +950,13 @@ int argo_write(ARGO_VALUE *v, FILE *f) {
             return 0;
         }
     }
-    fprintf(stderr, "ERROR: Could not write to stream.\n");
+    fprintf(stderr, "[Write] ERROR: Could not write to stream.\n");
     return -1;
 }
 
 int argo_write_basic(ARGO_BASIC *b, FILE *f) {
     if(b == NULL || f == NULL) {
-        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        fprintf(stderr, "[Write] ERROR: Null pointer argument.\n");
         return -1;
     }
     if(*b == ARGO_NULL) {
@@ -925,7 +971,6 @@ int argo_write_basic(ARGO_BASIC *b, FILE *f) {
         fprintf(f, "%s", ARGO_FALSE_TOKEN);
         return 0;
     }
-    fprintf(stderr, "ERROR: Could not write to stream.\n");
     return -1;
 }
 
@@ -952,7 +997,7 @@ int argo_write_basic(ARGO_BASIC *b, FILE *f) {
 int argo_write_string(ARGO_STRING *s, FILE *f) {
     // TO BE IMPLEMENTED.
     if(s == NULL || f == NULL) {
-        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        fprintf(stderr, "[Write] ERROR: Null pointer argument.\n");
         return -1;
     }
     fprintf(f, "%c", ARGO_QUOTE);
@@ -960,7 +1005,7 @@ int argo_write_string(ARGO_STRING *s, FILE *f) {
     for(int i = 0; i < s->length; ++i) {
         c = *(s->content + i);
         if(c > 0xffff) {
-            fprintf(stderr, "ERROR: Could not write to stream.\n");
+            fprintf(stderr, "[Write] ERROR: Invalid character in string.\n");
             return -1;
         }
         if(c == ARGO_BSLASH)
@@ -1008,14 +1053,30 @@ int argo_write_string(ARGO_STRING *s, FILE *f) {
 int argo_write_number(ARGO_NUMBER *n, FILE *f) {
     // TO BE IMPLEMENTED.
     if(n == NULL || f == NULL) {
-        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        fprintf(stderr, "[Write] ERROR: Null pointer argument.\n");
         return -1;
     }
     if(n->valid_int) {
+        if(n->int_value > INT_MAX) {
+            fprintf(stderr, "[Write] ERROR: Overflow in number.\n");
+            return -1;
+        }
+        if(n->int_value < INT_MIN) {
+            fprintf(stderr, "[Write] ERROR: Underflow in number.\n");
+            return -1;
+        }
         fprintf(f, "%ld", n->int_value);
         return 0;
     }
     else if(n->valid_float) {
+        if(n->float_value > FLT_MAX) {
+            fprintf(stderr, "[Write] ERROR: Overflow in number.\n");
+            return -1;
+        }
+        if((-1 * n->float_value) > FLT_MAX) {
+            fprintf(stderr, "[Write] ERROR: Underflow in number.\n");
+            return -1;
+        }
         double num = n->float_value;
         long count = 0;
         if(num > 0) {
@@ -1044,13 +1105,12 @@ int argo_write_number(ARGO_NUMBER *n, FILE *f) {
             fprintf(f, "%.*lf", ARGO_PRECISION, num);
         return 0;
     }
-    fprintf(stderr, "ERROR: Could not write to stream.\n");
     return -1;
 }
 
 int argo_write_array(ARGO_ARRAY *a, FILE *f) {
     if(a == NULL || f == NULL) {
-        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        fprintf(stderr, "[Write] ERROR: Null pointer argument.\n");
         return -1;
     }
     fprintf(f, "%c", ARGO_LBRACK);
@@ -1089,7 +1149,7 @@ int argo_write_array(ARGO_ARRAY *a, FILE *f) {
 
 int argo_write_object(ARGO_OBJECT *o, FILE *f) {
     if(o == NULL || f == NULL) {
-        fprintf(stderr, "ERROR: Null pointer argument.\n");
+        fprintf(stderr, "[Write] ERROR: Null pointer argument.\n");
         return -1;
     }
     fprintf(f, "%c", ARGO_LBRACE);
