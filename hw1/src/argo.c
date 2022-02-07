@@ -488,7 +488,7 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
     n->valid_string = 1;
     n->valid_float = 1;
     n->valid_int = 1;
-    int num_of_digits = 0;
+    //int num_of_digits = 0;
     char negative = 0;
     argo_append_char(&n->string_value, c);
     if(c == ARGO_MINUS) {
@@ -509,7 +509,7 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
         }
         argo_append_char(&n->string_value, c);
     }
-    ++num_of_digits;
+    //++num_of_digits;
     n->int_value = c - ARGO_DIGIT0;
     if(c != ARGO_DIGIT0)
         c = fgetc(f);
@@ -525,7 +525,7 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
     }
     while(argo_is_digit(c)) {
         ++argo_chars_read;
-        ++num_of_digits;
+        //++num_of_digits;
         n->int_value = n->int_value * 10 + (c - ARGO_DIGIT0);
         argo_append_char(&n->string_value, c);
         c = fgetc(f);
@@ -638,11 +638,11 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
                 n->float_value *= 10;
         }
     }
-    if(n->valid_int && num_of_digits > ARGO_MAX_DIGITS) {
+    /*if(n->valid_int && num_of_digits > ARGO_MAX_DIGITS) {
         fprintf(stderr, "[%d:%d] ERROR: Exceeded maximum digit capacity (%d) for number.\n", argo_lines_read, argo_chars_read, ARGO_MAX_DIGITS);
         n = NULL;
         return -1;
-    }
+    }*/
     if(!n->valid_int)
         n->int_value = 0;
     if(negative)
