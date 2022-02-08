@@ -1106,13 +1106,13 @@ int argo_write_array(ARGO_ARRAY *a, FILE *f) {
     fprintf(f, "%c", ARGO_LBRACK);
     if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
         fprintf(f, "%c", ARGO_LF);
-        ++indent_level;
+        if(a->element_list->next != a->element_list)
+            ++indent_level;
         int num_of_spaces = indent_level * (global_options & 0xff);
         for(int i = 0; i < num_of_spaces; ++i)
             fprintf(f, "%c", ARGO_SPACE);
     }
     if(a->element_list->next == a->element_list) {
-        --indent_level;
         fprintf(f, "%c", ARGO_RBRACK);
         return 0;
     }
@@ -1150,13 +1150,13 @@ int argo_write_object(ARGO_OBJECT *o, FILE *f) {
     fprintf(f, "%c", ARGO_LBRACE);
     if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
         fprintf(f, "%c", ARGO_LF);
-        ++indent_level;
+        if(o->member_list->next != o->member_list)
+            ++indent_level;
         int num_of_spaces = indent_level * (global_options & 0xff);
         for(int i = 0; i < num_of_spaces; ++i)
             fprintf(f, "%c", ARGO_SPACE);
     }
     if(o->member_list->next == o->member_list) {
-        --indent_level;
         fprintf(f, "%c", ARGO_RBRACE);
         return 0;
     }
