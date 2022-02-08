@@ -528,17 +528,21 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
     char float_overflow = 0;
     char int_underflow = 0;
     char float_underflow = 0;
+    unsigned long long temp_llong = n->int_value;
+    long double temp_ldouble = n->float_value;
     while(argo_is_digit(c)) {
         ++argo_chars_read;
         n->int_value = n->int_value * 10 + (c - ARGO_DIGIT0);
-        if(negative && (-1 * n->int_value) < INT_MIN)
+        temp_llong = temp_llong * 10 + (c - ARGO_DIGIT0);
+        if(negative && temp_llong - 1 > LONG_MAX)
             int_underflow = 1;
-        if(!negative && n->int_value > INT_MAX)
+        if(!negative && temp_llong > LONG_MAX)
             int_overflow = 1;
         n->float_value = n->float_value * 10 + (c - ARGO_DIGIT0);
-        if(negative && n->float_value > FLT_MAX)
+        temp_ldouble = temp_ldouble * 10 + (c - ARGO_DIGIT0);
+        if(negative && temp_ldouble > DBL_MAX)
             float_underflow = 1;
-        if(!negative && n->float_value > FLT_MAX)
+        if(!negative && temp_ldouble > DBL_MAX)
             float_overflow = 1;
         argo_append_char(&n->string_value, c);
         c = fgetc(f);
@@ -568,18 +572,20 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
             ++argo_chars_read;
             ++count;
             n->float_value = n->float_value * 10 + (c - ARGO_DIGIT0);
-            if(negative && n->float_value > FLT_MAX)
+            temp_ldouble = temp_ldouble * 10 + (c - ARGO_DIGIT0);
+            if(negative && temp_ldouble > DBL_MAX)
                 float_underflow = 1;
-            if(!negative && n->float_value > FLT_MAX)
+            if(!negative && temp_ldouble > DBL_MAX)
                 float_overflow = 1;
             argo_append_char(&n->string_value, c);
             c = fgetc(f);
         }
         for(int i = 0; i < count; ++i) {
             n->float_value /= 10;
-            if(negative && n->float_value > FLT_MAX)
+            temp_ldouble /= 10;
+            if(negative && temp_ldouble > DBL_MAX)
                 float_underflow = 1;
-            if(!negative && n->float_value > FLT_MAX)
+            if(!negative && temp_ldouble > DBL_MAX)
                 float_overflow = 1;
         }
     }
@@ -618,11 +624,11 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
                 return -1;
             }
             argo_append_char(&n->string_value, c);
-            long exp = c - ARGO_DIGIT0;
+            unsigned long long exp = c - ARGO_DIGIT0;
             c = fgetc(f);
             while(argo_is_digit(c)) {
                 exp = exp * 10 + (c - ARGO_DIGIT0);
-                if((-1 * exp) < INT_MIN) {
+                if(exp - 1 > LONG_MAX) {
                     fprintf(stderr, "[%d:%d] ERROR: Underflow in exponent.\n", argo_lines_read, argo_chars_read);
                     n = NULL;
                     return -1;
@@ -633,9 +639,10 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
             }
             for(int i = 0; i < exp; ++i) {
                 n->float_value /= 10;
-                if(negative && n->float_value > FLT_MAX)
+                temp_ldouble /= 10;
+                if(negative && temp_ldouble > DBL_MAX)
                     float_underflow = 1;
-                if(!negative && n->float_value > FLT_MAX)
+                if(!negative && temp_ldouble > DBL_MAX)
                     float_overflow = 1;
             }
         }
@@ -657,11 +664,11 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
                 }
                 argo_append_char(&n->string_value, c);
             }
-            long exp = c - ARGO_DIGIT0;
+            unsigned long long exp = c - ARGO_DIGIT0;
             c = fgetc(f);
             while(argo_is_digit(c)) {
                 exp = exp * 10 + (c - ARGO_DIGIT0);
-                if(exp > INT_MAX) {
+                if(exp > LONG_MAX) {
                     fprintf(stderr, "[%d:%d] ERROR: Overflow in exponent.\n", argo_lines_read, argo_chars_read);
                     n = NULL;
                     return -1;
@@ -672,9 +679,10 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
             }
             for(int i = 0; i < exp; ++i) {
                 n->float_value *= 10;
-                if(negative && n->float_value > FLT_MAX)
+                temp_ldouble *= 10;
+                if(negative && temp_ldouble > DBL_MAX)
                     float_underflow = 1;
-                if(!negative && n->float_value > FLT_MAX)
+                if(!negative && temp_ldouble > DBL_MAX)
                     float_overflow = 1;
             }
         }
@@ -1004,10 +1012,8 @@ int argo_write_string(ARGO_STRING *s, FILE *f) {
     ARGO_CHAR c;
     for(int i = 0; i < s->length; ++i) {
         c = *(s->content + i);
-        if(c > 0xffff) {
-            fprintf(stderr, "[Write] ERROR: Invalid character in string.\n");
+        if(c > 0xffff)
             return -1;
-        }
         if(c == ARGO_BSLASH)
             fprintf(f, "%c%c", ARGO_BSLASH, ARGO_BSLASH);
         else if(c == ARGO_QUOTE)
@@ -1057,26 +1063,10 @@ int argo_write_number(ARGO_NUMBER *n, FILE *f) {
         return -1;
     }
     if(n->valid_int) {
-        if(n->int_value > INT_MAX) {
-            fprintf(stderr, "[Write] ERROR: Overflow in number.\n");
-            return -1;
-        }
-        if(n->int_value < INT_MIN) {
-            fprintf(stderr, "[Write] ERROR: Underflow in number.\n");
-            return -1;
-        }
         fprintf(f, "%ld", n->int_value);
         return 0;
     }
     else if(n->valid_float) {
-        if(n->float_value > FLT_MAX) {
-            fprintf(stderr, "[Write] ERROR: Overflow in number.\n");
-            return -1;
-        }
-        if((-1 * n->float_value) > FLT_MAX) {
-            fprintf(stderr, "[Write] ERROR: Underflow in number.\n");
-            return -1;
-        }
         double num = n->float_value;
         long count = 0;
         if(num > 0) {
