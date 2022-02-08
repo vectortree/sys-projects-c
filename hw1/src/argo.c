@@ -1111,6 +1111,11 @@ int argo_write_array(ARGO_ARRAY *a, FILE *f) {
         for(int i = 0; i < num_of_spaces; ++i)
             fprintf(f, "%c", ARGO_SPACE);
     }
+    if(a->element_list->next == a->element_list) {
+        --indent_level;
+        fprintf(f, "%c", ARGO_RBRACK);
+        return 0;
+    }
     ARGO_VALUE *ptr = a->element_list->next;
     while(ptr != a->element_list->prev) {
         if(argo_write(ptr, f))
@@ -1149,6 +1154,11 @@ int argo_write_object(ARGO_OBJECT *o, FILE *f) {
         int num_of_spaces = indent_level * (global_options & 0xff);
         for(int i = 0; i < num_of_spaces; ++i)
             fprintf(f, "%c", ARGO_SPACE);
+    }
+    if(o->member_list->next == o->member_list) {
+        --indent_level;
+        fprintf(f, "%c", ARGO_RBRACE);
+        return 0;
     }
     ARGO_VALUE *ptr = o->member_list->next;
     while(ptr != o->member_list->prev) {
