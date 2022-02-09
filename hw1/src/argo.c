@@ -736,6 +736,8 @@ int argo_read_array(ARGO_ARRAY *a, FILE *f) {
     a->element_list->prev = a->element_list;
     c = fgetc(f);
     next_char(&c, f);
+    if(c == ARGO_RBRACK)
+        ++argo_chars_read;
     while(c != ARGO_RBRACK) {
         if(eof(c)) {
             a = NULL;
@@ -814,12 +816,15 @@ int argo_read_object(ARGO_OBJECT *o, FILE *f) {
     o->member_list->prev = o->member_list;
     c = fgetc(f);
     next_char(&c, f);
+    if(c == ARGO_RBRACE)
+        ++argo_chars_read;
     while(c != ARGO_RBRACE) {
         if(eof(c)) {
             o = NULL;
             return -1;
         }
         if(c != ARGO_QUOTE) {
+            ++argo_chars_read;
             if(argo_is_control(c))
                 fprintf(stderr, "[%d:%d] ERROR: Expected '%c' (%d) but got control character (%d) for object member.\n", argo_lines_read, argo_chars_read, ARGO_QUOTE, ARGO_QUOTE, c);
             else
