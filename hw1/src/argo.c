@@ -926,7 +926,8 @@ int argo_write(ARGO_VALUE *v, FILE *f) {
     if(v->type == ARGO_BASIC_TYPE) {
         if(!argo_write_basic(&v->content.basic, f)) {
             if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION && indent_level == 0) {
-                fprintf(f, "\n");
+                if(fputc(ARGO_LF, f) == EOF)
+                    return -1;
             }
             return 0;
         }
@@ -934,7 +935,8 @@ int argo_write(ARGO_VALUE *v, FILE *f) {
     if(v->type == ARGO_STRING_TYPE) {
         if(!argo_write_string(&v->content.string, f)) {
             if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION && indent_level == 0) {
-                fprintf(f, "\n");
+                if(fputc(ARGO_LF, f) == EOF)
+                    return -1;
             }
             return 0;
         }
@@ -942,7 +944,8 @@ int argo_write(ARGO_VALUE *v, FILE *f) {
     if(v->type == ARGO_NUMBER_TYPE) {
         if(!argo_write_number(&v->content.number, f)) {
             if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION && indent_level == 0) {
-                fprintf(f, "%c", ARGO_LF);
+                if(fputc(ARGO_LF, f) == EOF)
+                    return -1;
             }
             return 0;
         }
@@ -950,7 +953,8 @@ int argo_write(ARGO_VALUE *v, FILE *f) {
     if(v->type == ARGO_ARRAY_TYPE) {
         if(!argo_write_array(&v->content.array, f)) {
             if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION && indent_level == 0) {
-                fprintf(f, "%c", ARGO_LF);
+                if(fputc(ARGO_LF, f) == EOF)
+                    return -1;
             }
             return 0;
         }
@@ -958,7 +962,8 @@ int argo_write(ARGO_VALUE *v, FILE *f) {
     if(v->type == ARGO_OBJECT_TYPE) {
         if(!argo_write_object(&v->content.object, f)) {
             if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION && indent_level == 0) {
-                fprintf(f, "%c", ARGO_LF);
+                if(fputc(ARGO_LF, f) == EOF)
+                    return -1;
             }
             return 0;
         }
@@ -973,15 +978,18 @@ int argo_write_basic(ARGO_BASIC *b, FILE *f) {
         return -1;
     }
     if(*b == ARGO_NULL) {
-        fputs(ARGO_NULL_TOKEN, f);
+        if(fputs(ARGO_NULL_TOKEN, f) == EOF)
+            return -1;
         return 0;
     }
     if(*b == ARGO_TRUE) {
-        fputs(ARGO_TRUE_TOKEN, f);
+        if(fputs(ARGO_TRUE_TOKEN, f) == EOF)
+            return -1;
         return 0;
     }
     if(*b == ARGO_FALSE) {
-        fputs(ARGO_FALSE_TOKEN, f);
+        if(fputs(ARGO_FALSE_TOKEN, f) == EOF)
+            return -1;
         return 0;
     }
     return -1;
@@ -1013,45 +1021,64 @@ int argo_write_string(ARGO_STRING *s, FILE *f) {
         fprintf(stderr, "[Write] ERROR: Null pointer argument.\n");
         return -1;
     }
-    fputc(ARGO_QUOTE, f);
+    if(fputc(ARGO_QUOTE, f) == EOF)
+        return -1;
     ARGO_CHAR c;
     for(int i = 0; i < s->length; ++i) {
         c = *(s->content + i);
         if(c > 0xffff || c < 0)
             return -1;
         if(c == ARGO_BSLASH) {
-            fputc(ARGO_BSLASH, f);
-            fputc(ARGO_BSLASH, f);
+            if(fputc(ARGO_BSLASH, f) == EOF)
+                return -1;
+            if(fputc(ARGO_BSLASH, f) == EOF)
+                return -1;
         }
         else if(c == ARGO_QUOTE) {
-            fputc(ARGO_BSLASH, f);
-            fputc(ARGO_QUOTE, f);
+            if(fputc(ARGO_BSLASH, f) == EOF)
+                return -1;
+            if(fputc(ARGO_QUOTE, f) == EOF)
+                return -1;
         }
         else if(c == ARGO_BS) {
-            fputc(ARGO_BSLASH, f);
-            fputc(ARGO_B, f);
+            if(fputc(ARGO_BSLASH, f) == EOF)
+                return -1;
+            if(fputc(ARGO_B, f) == EOF)
+                return -1;
         }
         else if(c == ARGO_FF) {
-            fputc(ARGO_BSLASH, f);
-            fputc(ARGO_F, f);
+            if(fputc(ARGO_BSLASH, f) == EOF)
+                return -1;
+            if(fputc(ARGO_F, f) == EOF)
+                return -1;
         }
         else if(c == ARGO_LF) {
-            fputc(ARGO_BSLASH, f);
-            fputc(ARGO_N, f);
+            if(fputc(ARGO_BSLASH, f) == EOF)
+                return -1;
+            if(fputc(ARGO_N, f) == EOF)
+                return -1;
         }
         else if(c == ARGO_CR) {
-            fputc(ARGO_BSLASH, f);
-            fputc(ARGO_R, f);
+            if(fputc(ARGO_BSLASH, f) == EOF)
+                return -1;
+            if(fputc(ARGO_R, f) == EOF)
+                return -1;
         }
         else if(c == ARGO_HT) {
-            fputc(ARGO_BSLASH, f);
-            fputc(ARGO_T, f);
+            if(fputc(ARGO_BSLASH, f) == EOF)
+                return -1;
+            if(fputc(ARGO_T, f) == EOF)
+                return -1;
         }
-        else if(c > 0x1f && c < 0xff)
-            fputc(c, f);
+        else if(c > 0x1f && c < 0xff) {
+            if(fputc(c, f) == EOF)
+                return -1;
+        }
         else if (c >= 0xff || c <= 0x1f) {
-            fputc(ARGO_BSLASH, f);
-            fputc(ARGO_U, f);
+            if(fputc(ARGO_BSLASH, f) == EOF)
+                return -1;
+            if(fputc(ARGO_U, f) == EOF)
+                return -1;
             int quotient;
             int remainder;
             for(int j = 4; j >= 1; --j) {
@@ -1060,23 +1087,39 @@ int argo_write_string(ARGO_STRING *s, FILE *f) {
                     remainder = quotient % 16;
                     quotient /= 16;
                 }
-                if(remainder == 0xa)
-                    fputc('a', f);
-                else if(remainder == 0xb)
-                    fputc('b', f);
-                else if(remainder == 0xc)
-                    fputc('c', f);
-                else if(remainder == 0xd)
-                    fputc('d', f);
-                else if(remainder == 0xe)
-                    fputc('e', f);
-                else if(remainder == 0xf)
-                    fputc('f', f);
-                else fputc(remainder + ARGO_DIGIT0, f);
+                if(remainder == 0xa) {
+                    if(fputc('a', f) == EOF)
+                        return -1;
+                }
+                else if(remainder == 0xb) {
+                    if(fputc('b', f) == EOF)
+                        return -1;
+                }
+                else if(remainder == 0xc) {
+                    if(fputc('c', f) == EOF)
+                        return -1;
+                }
+                else if(remainder == 0xd) {
+                    if(fputc('d', f) == EOF)
+                        return -1;
+                }
+                else if(remainder == 0xe) {
+                    if(fputc('e', f) == EOF)
+                        return -1;
+                }
+                else if(remainder == 0xf) {
+                    if(fputc('f', f) == EOF)
+                        return -1;
+                }
+                else {
+                    if(fputc(remainder + ARGO_DIGIT0, f) == EOF)
+                        return -1;
+                }
             }
         }
     }
-    fputc(ARGO_QUOTE, f);
+    if(fputc(ARGO_QUOTE, f) == EOF)
+        return -1;
     return 0;
 }
 
@@ -1107,14 +1150,16 @@ int argo_write_number(ARGO_NUMBER *n, FILE *f) {
     if(n->valid_int) {
         long num = n->int_value;
         if(num < 0) {
-            fputc(ARGO_MINUS, f);
+            if(fputc(ARGO_MINUS, f) == EOF)
+                return -1;
             num *= -1;
         }
         long div = 1;
         while((num / div) >= 10)
             div *= 10;
         while(div > 0) {
-            fputc(((num / div) % 10) + ARGO_DIGIT0, f);
+            if(fputc(((num / div) % 10) + ARGO_DIGIT0, f) == EOF)
+                return -1;
             div /= 10;
         }
         return 0;
@@ -1122,7 +1167,8 @@ int argo_write_number(ARGO_NUMBER *n, FILE *f) {
     else if(n->valid_float) {
         double num = n->float_value;
         if(num < 0) {
-            fputc(ARGO_MINUS, f);
+            if(fputc(ARGO_MINUS, f) == EOF)
+                return -1;
             num *= -1;
         }
         long count = 0;
@@ -1146,26 +1192,32 @@ int argo_write_number(ARGO_NUMBER *n, FILE *f) {
                 num *= 10;
             }
         }
-        fputc(ARGO_DIGIT0, f);
-        fputc(ARGO_PERIOD, f);
+        if(fputc(ARGO_DIGIT0, f) == EOF)
+            return -1;
+        if(fputc(ARGO_PERIOD, f) == EOF)
+            return -1;
         for(int i = 0; i < ARGO_PRECISION; ++i) {
             num *= 10;
-            fputc((int) num + ARGO_DIGIT0, f);
+            if(fputc((int) num + ARGO_DIGIT0, f) == EOF)
+                return -1;
             num -= (int) num;
             if(num == 0)
                 break;
         }
         if(count) {
-            fputc(ARGO_E, f);
+            if(fputc(ARGO_E, f) == EOF)
+                return -1;
             if(count < 0) {
-                fputc(ARGO_MINUS, f);
+                if(fputc(ARGO_MINUS, f) == EOF)
+                    return -1;
                 count *= -1;
             }
             long div = 1;
             while((count / div) >= 10)
                 div *= 10;
             while(div > 0) {
-                fputc(((count / div) % 10) + ARGO_DIGIT0, f);
+                if(fputc(((count / div) % 10) + ARGO_DIGIT0, f) == EOF)
+                    return -1;
                 div /= 10;
             }
         }
@@ -1179,42 +1231,52 @@ int argo_write_array(ARGO_ARRAY *a, FILE *f) {
         fprintf(stderr, "[Write] ERROR: Null pointer argument.\n");
         return -1;
     }
-    fputc(ARGO_LBRACK, f);
+    if(fputc(ARGO_LBRACK, f) == EOF)
+        return -1;
     if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
-        fputc(ARGO_LF, f);
+        if(fputc(ARGO_LF, f) == EOF)
+            return -1;
         if(a->element_list->next != a->element_list)
             ++indent_level;
         int num_of_spaces = indent_level * (global_options & 0xff);
         for(int i = 0; i < num_of_spaces; ++i)
-            fputc(ARGO_SPACE, f);
+            if(fputc(ARGO_SPACE, f) == EOF)
+                return -1;
     }
     if(a->element_list->next == a->element_list) {
-        fputc(ARGO_RBRACK, f);
+        if(fputc(ARGO_RBRACK, f) == EOF)
+            return -1;
         return 0;
     }
     ARGO_VALUE *ptr = a->element_list->next;
     while(ptr != a->element_list->prev) {
         if(argo_write(ptr, f))
             return -1;
-        fputc(ARGO_COMMA, f);
+        if(fputc(ARGO_COMMA, f) == EOF)
+            return -1;
         if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
-            fputc(ARGO_LF, f);
+            if(fputc(ARGO_LF, f) == EOF)
+                return -1;
             int num_of_spaces = indent_level * (global_options & 0xff);
             for(int i = 0; i < num_of_spaces; ++i)
-                fputc(ARGO_SPACE, f);
+                if(fputc(ARGO_SPACE, f) == EOF)
+                    return -1;
         }
         ptr = ptr->next;
     }
     if(argo_write(ptr, f))
         return -1;
     if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
-        fputc(ARGO_LF, f);
+        if(fputc(ARGO_LF, f) == EOF)
+            return -1;
         --indent_level;
         int num_of_spaces = indent_level * (global_options & 0xff);
         for(int i = 0; i < num_of_spaces; ++i)
-            fputc(ARGO_SPACE, f);
+            if(fputc(ARGO_SPACE, f) == EOF)
+                return -1;
     }
-    fputc(ARGO_RBRACK, f);
+    if(fputc(ARGO_RBRACK, f) == EOF)
+        return -1;
     return 0;
 }
 
@@ -1223,51 +1285,65 @@ int argo_write_object(ARGO_OBJECT *o, FILE *f) {
         fprintf(stderr, "[Write] ERROR: Null pointer argument.\n");
         return -1;
     }
-    fputc(ARGO_LBRACE, f);
+    if(fputc(ARGO_LBRACE, f) == EOF)
+        return -1;
     if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
-        fputc(ARGO_LF, f);
+        if(fputc(ARGO_LF, f) == EOF)
+            return -1;
         if(o->member_list->next != o->member_list)
             ++indent_level;
         int num_of_spaces = indent_level * (global_options & 0xff);
         for(int i = 0; i < num_of_spaces; ++i)
-            fputc(ARGO_SPACE, f);
+            if(fputc(ARGO_SPACE, f) == EOF)
+                return -1;
     }
     if(o->member_list->next == o->member_list) {
-        fputc(ARGO_RBRACE, f);
+        if(fputc(ARGO_RBRACE, f) == EOF)
+            return -1;
         return 0;
     }
     ARGO_VALUE *ptr = o->member_list->next;
     while(ptr != o->member_list->prev) {
         if(argo_write_string(&ptr->name, f))
             return -1;
-        fputc(ARGO_COLON, f);
+        if(fputc(ARGO_COLON, f) == EOF)
+            return -1;
         if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION)
-            fputc(ARGO_SPACE, f);
+            if(fputc(ARGO_SPACE, f) == EOF)
+                return -1;
         if(argo_write(ptr, f))
             return -1;
-        fputc(ARGO_COMMA, f);
+        if(fputc(ARGO_COMMA, f) == EOF)
+            return -1;
         if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
-            fputc(ARGO_LF, f);
+            if(fputc(ARGO_LF, f) == EOF)
+                return -1;
             int num_of_spaces = indent_level * (global_options & 0xff);
             for(int i = 0; i < num_of_spaces; ++i)
-                fputc(ARGO_SPACE, f);
+                if(fputc(ARGO_SPACE, f) == EOF)
+                    return -1;
         }
         ptr = ptr->next;
     }
     if(argo_write_string(&ptr->name, f))
         return -1;
-    fputc(ARGO_COLON, f);
+    if(fputc(ARGO_COLON, f) == EOF)
+        return -1;
     if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION)
-        fputc(ARGO_SPACE, f);
+        if(fputc(ARGO_SPACE, f) == EOF)
+            return -1;
     if(argo_write(ptr, f))
         return -1;
     if((global_options & PRETTY_PRINT_OPTION) == PRETTY_PRINT_OPTION) {
-        fputc(ARGO_LF, f);
+        if(fputc(ARGO_LF, f) == EOF)
+            return -1;
         --indent_level;
         int num_of_spaces = indent_level * (global_options & 0xff);
         for(int i = 0; i < num_of_spaces; ++i)
-            fputc(ARGO_SPACE, f);
+            if(fputc(ARGO_SPACE, f) == EOF)
+                return -1;
     }
-    fputc(ARGO_RBRACE, f);
+    if(fputc(ARGO_RBRACE, f) == EOF)
+        return -1;
     return 0;
 }
