@@ -628,7 +628,7 @@ int argo_read_number(ARGO_NUMBER *n, FILE *f) {
             c = fgetc(f);
             while(argo_is_digit(c)) {
                 exp = exp * 10 + (c - ARGO_DIGIT0);
-                if(exp - 1 > LONG_MAX) {
+                if((exp != 0) && (exp - 1 > LONG_MAX)) {
                     fprintf(stderr, "[%d:%d] ERROR: Underflow in exponent.\n", argo_lines_read, argo_chars_read);
                     n = NULL;
                     return -1;
