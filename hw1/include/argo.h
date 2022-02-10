@@ -226,14 +226,6 @@ typedef struct argo_value {
 #define ARGO_NULL_TOKEN "null"
 
 /*
- * Variable that is reset to zero at the beginning of each line and is
- * incremented each time a character is read by function argo_read_char().
- * It is intended to be used for error messages and debugging.  It can be
- * assigned to if it is necessary to reset the value for some reason,
- * such as if reading from multiple sources is done.
- */
-
-/*
  * The following function is used to append a character to a string.
  * An implementation has been provided for you.
  */
