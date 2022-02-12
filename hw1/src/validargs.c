@@ -8,6 +8,7 @@ int validargs(int, char **);
 int equals(char *, char *);
 int valid_int_string_rep(char *);
 int convert_string_to_int(char *);
+int leading_zeros(char *, int);
 int only_digits(char *);
 int valid_byte_range(int);
 
@@ -85,6 +86,8 @@ int valid_int_string_rep(char *a) {
         return -1;
     if(!only_digits(a))
         return -1;
+    if(leading_zeros(a, length))
+        return -1;
     int x = convert_string_to_int(a);
     if(!valid_byte_range(x))
         return -1;
@@ -102,6 +105,13 @@ int convert_string_to_int(char *a) {
         d *= 10;
     }
     return x;
+}
+
+int leading_zeros(char *a, int length) {
+    if(length >= 2)
+        if(*a == '0' && (*(a + 1) >= '0' && *(a + 1) <= '9'))
+            return 1;
+    return 0;
 }
 
 int only_digits(char *a) {
