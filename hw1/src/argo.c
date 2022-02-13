@@ -1070,11 +1070,11 @@ int argo_write_string(ARGO_STRING *s, FILE *f) {
             if(fputc(ARGO_T, f) == EOF)
                 return -1;
         }
-        else if(c > 0x1f && c < 0xff) {
+        else if(c > 0x1f && c <= 0xff) {
             if(fputc(c, f) == EOF)
                 return -1;
         }
-        else if (c >= 0xff || c <= 0x1f) {
+        else if (c > 0xff || c <= 0x1f) {
             if(fputc(ARGO_BSLASH, f) == EOF)
                 return -1;
             if(fputc(ARGO_U, f) == EOF)
