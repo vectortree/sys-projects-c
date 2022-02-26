@@ -181,6 +181,7 @@ rlcleanup:
 
   if (cbuf) freebuffer(cbuf);
   if (pbuf) {
+    freebuffer(pbuf);
     if (!lines)
       for (;;) {
         lines = nextitem(pbuf);
@@ -202,7 +203,7 @@ static void setdefaults(
 /* to "par.doc". Does not use errmsg because it always succeeds.        */
 {
   int numlines;
-  const char *start, *end, * const *line, *p1, *p2;
+  const char *start = NULL, *end = NULL, * const *line = NULL, *p1 = NULL, *p2 = NULL;
 
   if (*pwidth < 0) *pwidth = 72;
   if (*phang < 0) *phang = 0;
@@ -250,10 +251,8 @@ static void freelines(char **lines)
 /* Frees the strings pointed to in the NULL-terminated array lines, then */
 /* frees the array. Does not use errmsg because it always succeeds.      */
 {
-  char *line;
-
-  for (line = *lines;  *line;  ++line)
-    free(line);
+  for (int i = 0; lines[i]; ++i)
+    free(lines[i]);
 
   free(lines);
 }
@@ -269,7 +268,7 @@ int original_main(int argc, const char * const *argv)
 
   parinit = getenv("PARINIT");
   if (parinit) {
-    picopy = malloc((strlen(parinit) + 1) * sizeof (char));
+    picopy = calloc((strlen(parinit) + 1), sizeof (char));
     if (!picopy) {
       strcpy(errmsg,outofmem);
       goto parcleanup;
@@ -305,7 +304,7 @@ int original_main(int argc, const char * const *argv)
     if (!*inlines) {
       free(inlines);
       inlines = NULL;
-      continue;
+      break;
     }
 
     width = widthbak;  prefix = prefixbak;  suffix = suffixbak;

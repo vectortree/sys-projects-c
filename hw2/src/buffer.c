@@ -53,9 +53,9 @@ struct buffer *newbuffer(size_t itemsize)
   maxhere = 124 / itemsize;
   if (maxhere < 4) maxhere = 4;
 
-  buf = (struct buffer *) malloc(sizeof (struct buffer));
-  blk = (struct block *) malloc(sizeof (struct block));
-  items = malloc(maxhere * itemsize);
+  buf = (struct buffer *) calloc(1, sizeof (struct buffer));
+  blk = (struct block *) calloc(1, sizeof (struct block));
+  items = calloc(1, maxhere * itemsize);
   if (!buf || !blk || !items) {
     strcpy(errmsg,outofmem);
     goto nberror;
@@ -119,8 +119,8 @@ void additem(struct buffer *buf, const void *item)
     new = blk->next;
     if (!new) {
       maxhere = 2 * blk->maxhere;
-      new = (struct block * ) malloc(sizeof (struct block));
-      items = malloc(maxhere * itemsize);
+      new = (struct block * ) calloc(1, sizeof (struct block));
+      items = calloc(1, maxhere * itemsize);
       if (!new || !items) {
         strcpy(errmsg,outofmem);
         goto aierror;
@@ -166,7 +166,7 @@ void *copyitems(struct buffer *buf)
   n = b->numprevious + b->numhere;
   if (!n) return NULL;
 
-  r = malloc(n * itemsize);
+  r = calloc(n, itemsize);
   if (!r) {
     strcpy(errmsg,outofmem);
     return NULL;

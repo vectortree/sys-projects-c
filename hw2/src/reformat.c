@@ -158,9 +158,9 @@ char **reformat(const char * const *inlines, int width,
                 int prefix, int suffix, int hang, int last, int min)
 {
   int numin, numout, affix, L, linelen, newL;
-  const char * const *line, **suffixes = NULL, **suf, *end, *p1, *p2;
-  char *q1, *q2, **outlines;
-  struct word dummy, *head, *tail, *w1, *w2;
+  const char * const *line = NULL, **suffixes = NULL, **suf = NULL, *end = NULL, *p1 = NULL, *p2 = NULL;
+  char *q1 = NULL, *q2 = NULL, **outlines = NULL;
+  struct word dummy, *head = NULL, *tail = NULL, *w1 = NULL, *w2 = NULL;
   struct buffer *pbuf = NULL;
 
 /* Initialization: */
@@ -177,7 +177,7 @@ char **reformat(const char * const *inlines, int width,
 /* Allocate space for pointers to the suffixes: */
 
   if (numin) {
-    suffixes = malloc(numin * sizeof (const char *));
+    suffixes = calloc(numin, sizeof (const char *));
     if (!suffixes) {
       strcpy(errmsg,outofmem);
       goto rfcleanup;
@@ -206,7 +206,7 @@ char **reformat(const char * const *inlines, int width,
       p2 = p1;
       while (p2 < end && !isspace(*p2)) ++p2;
       if (p2 - p1 > L) p2 = p1 + L;
-      w1 = malloc(sizeof (struct word));
+      w1 = calloc(1, sizeof (struct word));
       if (!w1) {
         strcpy(errmsg,outofmem);
         goto rfcleanup;
@@ -248,7 +248,7 @@ char **reformat(const char * const *inlines, int width,
     linelen = suffix ? newL + affix :
                   w1 ? w1->linelen + prefix :
                        prefix;
-    q1 = malloc((linelen + 1) * sizeof (char));
+    q1 = calloc((linelen + 1), sizeof (char));
     if (!q1) {
       strcpy(errmsg,outofmem);
       goto rfcleanup;
