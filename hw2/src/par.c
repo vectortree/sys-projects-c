@@ -256,7 +256,7 @@ static void freelines(char **lines)
 }
 
 
-int original_main(int argc, const char * const *argv)
+int original_main(int argc, char **argv)
 {
   int width, widthbak = -1, prefix, prefixbak = -1, suffix, suffixbak = -1,
       hang, hangbak = -1, last, lastbak = -1, min, minbak = -1, c;
