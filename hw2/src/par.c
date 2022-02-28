@@ -132,7 +132,7 @@ static char **readlines(void)
 {
   struct buffer *cbuf = NULL, *pbuf = NULL;
   int c, blank;
-  char ch, *ln, *nullline = NULL, nullchar = '\0', **lines = NULL;
+  char ch, *ln = NULL, *nullline = NULL, nullchar = '\0', **lines = NULL;
 
   cbuf = newbuffer(sizeof (char));
   if (*errmsg) goto rlcleanup;
@@ -234,10 +234,8 @@ static void setdefaults(
       start = *inlines;
       for (end = start;  *end;  ++end);
       for (line = inlines + 1;  *line;  ++line) {
-        for (p2 = *line;  *p2;  ++p2)
-        for (p1 = end;
-             p1 > start && p2 > *line && p1[-1] == p2[-1];
-             --p1, --p2);
+        for (p2 = *line;  *p2;  ++p2);
+        for (p1 = end; p1 > start && p2 > *line && p1[-1] == p2[-1]; --p1, --p2);
         start = p1;
       }
       while (end - start >= 2 && isspace(*start) && isspace(start[1])) ++start;
