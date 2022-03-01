@@ -16,6 +16,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <getopt.h>
 
 #undef NULL
 #define NULL ((void *) 0)
@@ -259,7 +260,7 @@ static void freelines(char **lines)
 int original_main(int argc, char **argv)
 {
   int width, widthbak = -1, prefix, prefixbak = -1, suffix, suffixbak = -1,
-      hang, hangbak = -1, last, lastbak = -1, min, minbak = -1, c;
+      hang, hangbak = -1, last, lastbak = -1, min, minbak = -1, c, op, r, flag, first;
   char *parinit, *picopy = NULL, *opt, **inlines = NULL, **outlines = NULL,
        **line;
   const char * const whitechars = " \f\n\r\t\v";
@@ -283,11 +284,130 @@ int original_main(int argc, char **argv)
     picopy = NULL;
   }
 
-  while (*++argv) {
-    parseopt(*argv, &widthbak, &prefixbak,
-             &suffixbak, &hangbak, &lastbak, &minbak);
-    if (*errmsg) goto parcleanup;
+  //while (*++argv) {
+    //parseopt(*argv, &widthbak, &prefixbak,
+             //&suffixbak, &hangbak, &lastbak, &minbak);
+    //if (*errmsg) goto parcleanup;
+  //}
+  flag = 0, first = 0;
+  while (1) {
+    static struct option long_options[] =
+      {
+        {"version", no_argument, 0, 'v'},
+        {"width", required_argument, 0, 'w'},
+        {"prefix", required_argument, 0, 'p'},
+        {"suffix", required_argument, 0, 's'},
+        {"hang", required_argument, 0, 'h'},
+        {"last", no_argument, 0, 'a'},
+        {"min", no_argument, 0, 'i'},
+        {"no-last", no_argument, 0, 't'},
+        {"no-min", no_argument, 0, 'n'},
+        {0, 0, 0, 0}
+      };
+    int option_index = 0;
+
+    op = getopt_long (argc, argv, "w:p:s:h:l:m:", long_options, &option_index);
+
+    if (op == -1)
+      break;
+
+    switch (op) {
+      case 'v':
+        // Supports ONLY long-form!
+        if (!strncmp(argv[optind - 1], "-v", 2)) {
+          sprintf(errmsg, "Bad option: %.149s\n", argv[optind - 1]);
+          goto outofloop;
+        }
+        sprintf(errmsg, "%s %s\n", progname, version);
+        break;
+
+      case 'w':
+        if(!strtoudec(optarg, &r)) {
+          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          goto parcleanup;
+        }
+        widthbak = r;
+        break;
+
+      case 'p':
+        if(!strtoudec(optarg, &r)) {
+            sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+            goto parcleanup;
+        }
+        prefixbak = r;
+        break;
+
+      case 's':
+        if(!strtoudec(optarg, &r)) {
+            sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+            goto parcleanup;
+        }
+        suffixbak = r;
+        break;
+
+      case 'h':
+        if(!strtoudec(optarg, &r)) {
+          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          goto parcleanup;
+        }
+        hangbak = r;
+        break;
+
+      case 'l':
+        if(!strtoudec(optarg, &r)) {
+          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          goto parcleanup;
+        }
+        if (r != 0 && r != 1) {
+          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          goto parcleanup;
+        }
+        lastbak = r;
+        break;
+
+      case 'm':
+        if(!strtoudec(optarg, &r)) {
+          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          goto parcleanup;
+        }
+        if (r != 0 && r != 1) {
+          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          goto parcleanup;
+        }
+        minbak = r;
+        break;
+
+      case 'a':
+        lastbak = 1;
+        break;
+
+      case 'i':
+        minbak = 1;
+        break;
+
+      case 't':
+        lastbak = 0;
+        break;
+
+      case 'n':
+        minbak = 0;
+        break;
+
+      case '?':
+        flag = 1;
+        goto outofloop;
+    }
   }
+
+outofloop:
+  if (optind < argc) {
+    sprintf(errmsg, "Bad option: %.149s\n", argv[optind]);
+    //while (optind < argc - 1) fprintf(stderr, "%s ", argv[optind++]);
+    //fprintf(stderr, "%s\n", argv[optind]);
+    //goto parcleanup;
+  }
+
+  if (*errmsg || flag) goto parcleanup;
 
   for (;;) {
     for (;;) {
@@ -330,10 +450,11 @@ parcleanup:
   if (inlines) freelines(inlines);
   if (outlines) freelines(outlines);
 
-  if (*errmsg) {
+  if (*errmsg && (first || !flag)) {
     fprintf(stderr, "%.163s", errmsg);
     return EXIT_FAILURE;
   }
+  else if (flag) return EXIT_FAILURE;
 
   return EXIT_SUCCESS;
 }

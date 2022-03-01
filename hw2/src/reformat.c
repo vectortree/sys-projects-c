@@ -188,7 +188,12 @@ char **reformat(const char * const *inlines, int width,
 
   affix = prefix + suffix;
   L = width - prefix - suffix;
-
+  if (L <= 0) {
+    sprintf(errmsg,
+              "<width> (%d) <= <prefix> (%d) + <suffix> (%d)\n",
+              width, prefix, suffix);
+    goto rfcleanup;
+  }
   for (line = inlines, suf = suffixes;  *line;  ++line, ++suf) {
     for (end = *line;  *end;  ++end);
     if (end - *line < affix) {
