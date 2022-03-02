@@ -81,11 +81,22 @@ static void parseopt(
   const char *saveopt = opt;
   char oc;
   int n, r;
+  char *err = NULL;
+  size_t size = 0;
+  FILE *memstream = NULL;
 
   if (*opt == '-') ++opt;
 
   if (!strcmp(opt, "version")) {
-    sprintf(errmsg, "%s %s\n", progname, version);
+    err = NULL;
+    size = 0;
+    memstream = open_memstream(&err, &size);
+    fprintf(memstream, "%s %s\n", progname, version);
+    fflush(memstream);
+    clear_error();
+    set_error(err);
+    if (memstream) fclose(memstream);
+    if (err) free(err);
     return;
   }
 
@@ -116,11 +127,19 @@ static void parseopt(
     else goto badopt;
   }
 
-  *errmsg = '\0';
+  clear_error();
   return;
 
 badopt:
-  sprintf(errmsg, "Bad option: %.149s\n", saveopt);
+  err = NULL;
+  size = 0;
+  memstream = open_memstream(&err, &size);
+  fprintf(memstream, "Bad option: %.149s\n", saveopt);
+  fflush(memstream);
+  clear_error();
+  set_error(err);
+  if (memstream) fclose(memstream);
+  if (err) free(err);
 }
 
 
@@ -136,9 +155,9 @@ static char **readlines(void)
   char ch, *ln = NULL, *nullline = NULL, nullchar = '\0', **lines = NULL;
 
   cbuf = newbuffer(sizeof (char));
-  if (*errmsg) goto rlcleanup;
+  if (is_error()) goto rlcleanup;
   pbuf = newbuffer(sizeof (char *));
-  if (*errmsg) goto rlcleanup;
+  if (is_error()) goto rlcleanup;
 
   for (blank = 1;  ; ) {
     c = getchar();
@@ -149,11 +168,11 @@ static char **readlines(void)
         break;
       }
       additem(cbuf, &nullchar);
-      if (*errmsg) goto rlcleanup;
+      if (is_error()) goto rlcleanup;
       ln = copyitems(cbuf);
-      if (*errmsg) goto rlcleanup;
+      if (is_error()) goto rlcleanup;
       additem(pbuf, &ln);
-      if (*errmsg) goto rlcleanup;
+      if (is_error()) goto rlcleanup;
       clearbuffer(cbuf);
       blank = 1;
     }
@@ -161,21 +180,21 @@ static char **readlines(void)
       if (!isspace(c)) blank = 0;
       ch = c;
       additem(cbuf, &ch);
-      if (*errmsg) goto rlcleanup;
+      if (is_error()) goto rlcleanup;
     }
   }
 
   if (!blank) {
     additem(cbuf, &nullchar);
-    if (*errmsg) goto rlcleanup;
+    if (is_error()) goto rlcleanup;
     ln = copyitems(cbuf);
-    if (*errmsg) goto rlcleanup;
+    if (is_error()) goto rlcleanup;
     additem(pbuf, &ln);
-    if (*errmsg) goto rlcleanup;
+    if (is_error()) goto rlcleanup;
   }
 
   additem(pbuf, &nullline);
-  if (*errmsg) goto rlcleanup;
+  if (is_error()) goto rlcleanup;
   lines = copyitems(pbuf);
 
 rlcleanup:
@@ -257,19 +276,23 @@ static void freelines(char **lines)
 }
 
 
-int original_main(int argc, char **argv)
+int original_main(int argc, char * const *argv)
 {
   int width, widthbak = -1, prefix, prefixbak = -1, suffix, suffixbak = -1,
-      hang, hangbak = -1, last, lastbak = -1, min, minbak = -1, c, op, r, flag, first;
+      hang, hangbak = -1, last, lastbak = -1, min, minbak = -1, c, op, r, flag;
   char *parinit, *picopy = NULL, *opt, **inlines = NULL, **outlines = NULL,
        **line;
   const char * const whitechars = " \f\n\r\t\v";
+  char *err = NULL;
+  size_t size = 0;
+  FILE *memstream = NULL;
 
   parinit = getenv("PARINIT");
   if (parinit) {
     picopy = calloc((strlen(parinit) + 1), sizeof (char));
     if (!picopy) {
-      strcpy(errmsg,outofmem);
+      clear_error();
+      set_error("Out of memory.\n");
       goto parcleanup;
     }
     strcpy(picopy,parinit);
@@ -277,7 +300,7 @@ int original_main(int argc, char **argv)
     while (opt) {
       parseopt(opt, &widthbak, &prefixbak,
                &suffixbak, &hangbak, &lastbak, &minbak);
-      if (*errmsg) goto parcleanup;
+      if (is_error()) goto parcleanup;
       opt = strtok(NULL,whitechars);
     }
     free(picopy);
@@ -289,7 +312,7 @@ int original_main(int argc, char **argv)
              //&suffixbak, &hangbak, &lastbak, &minbak);
     //if (*errmsg) goto parcleanup;
   //}
-  flag = 0, first = 0;
+  flag = 0;
   while (1) {
     static struct option long_options[] =
       {
@@ -315,15 +338,39 @@ int original_main(int argc, char **argv)
       case 'v':
         // Supports ONLY long-form!
         if (!strncmp(argv[optind - 1], "-v", 2)) {
-          sprintf(errmsg, "Bad option: %.149s\n", argv[optind - 1]);
+          err = NULL;
+          size = 0;
+          memstream = open_memstream(&err, &size);
+          fprintf(memstream, "Bad option: %.149s\n", argv[optind - 1]);
+          fflush(memstream);
+          clear_error();
+          set_error(err);
+          if (memstream) fclose(memstream);
+          if (err) free(err);
           goto outofloop;
         }
-        sprintf(errmsg, "%s %s\n", progname, version);
+        err = NULL;
+        size = 0;
+        memstream = open_memstream(&err, &size);
+        fprintf(memstream, "%s %s\n", progname, version);
+        fflush(memstream);
+        clear_error();
+        set_error(err);
+        if (memstream) fclose(memstream);
+        if (err) free(err);
         break;
 
       case 'w':
         if(!strtoudec(optarg, &r)) {
-          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          err = NULL;
+          size = 0;
+          memstream = open_memstream(&err, &size);
+          fprintf(memstream, "Bad option argument: %.140s\n", optarg);
+          fflush(memstream);
+          clear_error();
+          set_error(err);
+          if (memstream) fclose(memstream);
+          if (err) free(err);
           goto parcleanup;
         }
         widthbak = r;
@@ -331,23 +378,47 @@ int original_main(int argc, char **argv)
 
       case 'p':
         if(!strtoudec(optarg, &r)) {
-            sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
-            goto parcleanup;
+          err = NULL;
+          size = 0;
+          memstream = open_memstream(&err, &size);
+          fprintf(memstream, "Bad option argument: %.140s\n", optarg);
+          fflush(memstream);
+          clear_error();
+          set_error(err);
+          if (memstream) fclose(memstream);
+          if (err) free(err);
+          goto parcleanup;
         }
         prefixbak = r;
         break;
 
       case 's':
         if(!strtoudec(optarg, &r)) {
-            sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
-            goto parcleanup;
+          err = NULL;
+          size = 0;
+          memstream = open_memstream(&err, &size);
+          fprintf(memstream, "Bad option argument: %.140s\n", optarg);
+          fflush(memstream);
+          clear_error();
+          set_error(err);
+          if (memstream) fclose(memstream);
+          if (err) free(err);
+          goto parcleanup;
         }
         suffixbak = r;
         break;
 
       case 'h':
         if(!strtoudec(optarg, &r)) {
-          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          err = NULL;
+          size = 0;
+          memstream = open_memstream(&err, &size);
+          fprintf(memstream, "Bad option argument: %.140s\n", optarg);
+          fflush(memstream);
+          clear_error();
+          set_error(err);
+          if (memstream) fclose(memstream);
+          if (err) free(err);
           goto parcleanup;
         }
         hangbak = r;
@@ -355,11 +426,27 @@ int original_main(int argc, char **argv)
 
       case 'l':
         if(!strtoudec(optarg, &r)) {
-          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          err = NULL;
+          size = 0;
+          memstream = open_memstream(&err, &size);
+          fprintf(memstream, "Bad option argument: %.140s\n", optarg);
+          fflush(memstream);
+          clear_error();
+          set_error(err);
+          if (memstream) fclose(memstream);
+          if (err) free(err);
           goto parcleanup;
         }
         if (r != 0 && r != 1) {
-          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          err = NULL;
+          size = 0;
+          memstream = open_memstream(&err, &size);
+          fprintf(memstream, "Bad option argument: %.140s\n", optarg);
+          fflush(memstream);
+          clear_error();
+          set_error(err);
+          if (memstream) fclose(memstream);
+          if (err) free(err);
           goto parcleanup;
         }
         lastbak = r;
@@ -367,11 +454,27 @@ int original_main(int argc, char **argv)
 
       case 'm':
         if(!strtoudec(optarg, &r)) {
-          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          err = NULL;
+          size = 0;
+          memstream = open_memstream(&err, &size);
+          fprintf(memstream, "Bad option argument: %.140s\n", optarg);
+          fflush(memstream);
+          clear_error();
+          set_error(err);
+          if (memstream) fclose(memstream);
+          if (err) free(err);
           goto parcleanup;
         }
         if (r != 0 && r != 1) {
-          sprintf(errmsg, "Bad option argument: %.140s\n", optarg);
+          err = NULL;
+          size = 0;
+          memstream = open_memstream(&err, &size);
+          fprintf(memstream, "Bad option argument: %.140s\n", optarg);
+          fflush(memstream);
+          clear_error();
+          set_error(err);
+          if (memstream) fclose(memstream);
+          if (err) free(err);
           goto parcleanup;
         }
         minbak = r;
@@ -401,13 +504,21 @@ int original_main(int argc, char **argv)
 
 outofloop:
   if (optind < argc) {
-    sprintf(errmsg, "Bad option: %.149s\n", argv[optind]);
+    err = NULL;
+    size = 0;
+    memstream = open_memstream(&err, &size);
+    fprintf(memstream, "Bad option: %.149s\n", argv[optind]);
+    fflush(memstream);
+    clear_error();
+    set_error(err);
+    if (memstream) fclose(memstream);
+    if (err) free(err);
     //while (optind < argc - 1) fprintf(stderr, "%s ", argv[optind++]);
     //fprintf(stderr, "%s\n", argv[optind]);
     //goto parcleanup;
   }
 
-  if (*errmsg || flag) goto parcleanup;
+  if (is_error() || flag) goto parcleanup;
 
   for (;;) {
     for (;;) {
@@ -418,7 +529,7 @@ outofloop:
     ungetc(c,stdin);
 
     inlines = readlines();
-    if (*errmsg) goto parcleanup;
+    if (is_error()) goto parcleanup;
     if (!*inlines) {
       free(inlines);
       inlines = NULL;
@@ -432,7 +543,7 @@ outofloop:
 
     outlines = reformat((const char * const *) inlines,
                         width, prefix, suffix, hang, last, min);
-    if (*errmsg) goto parcleanup;
+    if (is_error()) goto parcleanup;
 
     freelines(inlines);
     inlines = NULL;
@@ -450,11 +561,12 @@ parcleanup:
   if (inlines) freelines(inlines);
   if (outlines) freelines(outlines);
 
-  if (*errmsg && (first || !flag)) {
-    fprintf(stderr, "%.163s", errmsg);
+  if (is_error()) {
+    if (!flag) {
+      report_error(stderr);
+    }
+    clear_error();
     return EXIT_FAILURE;
   }
-  else if (flag) return EXIT_FAILURE;
-
   return EXIT_SUCCESS;
 }
