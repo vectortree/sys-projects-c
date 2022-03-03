@@ -579,7 +579,6 @@ int original_main(int argc, char * const *argv)
              //&suffixbak, &hangbak, &lastbak, &minbak);
     //if (*errmsg) goto parcleanup;
   //}
-  flag = 0;
   optind = 1; // The initial value of optind is set to one
   getoptlong_parse(&ver, &flag, argv, argc, &widthbak, &prefixbak, &suffixbak, &hangbak, &lastbak, &minbak);
   if (is_error() || flag) goto parcleanup;
