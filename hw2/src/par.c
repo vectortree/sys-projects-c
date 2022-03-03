@@ -70,79 +70,6 @@ static int strtoudec(const char *s, int *pn)
   return 1;
 }
 
-
-static void parseopt(
-  const char *opt, int *pwidth, int *pprefix,
-  int *psuffix, int *phang, int *plast, int *pmin
-)
-/* Parses the single option in opt, setting *pwidth, *pprefix,     */
-/* *psuffix, *phang, *plast, or *pmin as appropriate. Uses errmsg. */
-{
-  const char *saveopt = opt;
-  char oc;
-  int n, r;
-  char *err = NULL;
-  size_t size = 0;
-  FILE *memstream = NULL;
-
-  if (*opt == '-') ++opt;
-
-  if (!strcmp(opt, "version")) {
-    err = NULL;
-    size = 0;
-    memstream = open_memstream(&err, &size);
-    fprintf(memstream, "%s %s\n", progname, version);
-    fflush(memstream);
-    clear_error();
-    set_error(err);
-    if (memstream) fclose(memstream);
-    if (err) free(err);
-    return;
-  }
-
-  oc = *opt;
-
-  if (isdigit(oc)) {
-    if (!strtoudec(opt, &n)) goto badopt;
-    if (n <= 8) *pprefix = n;
-    else *pwidth = n;
-  }
-  else {
-    if (!oc) goto badopt;
-    n = 1;
-    r = strtoudec(opt + 1, &n);
-    if (opt[1] && !r) goto badopt;
-
-    if (oc == 'w' || oc == 'p' || oc == 's') {
-      if (!r) goto badopt;
-      if      (oc == 'w') *pwidth  = n;
-      else if (oc == 'p') *pprefix = n;
-      else                *psuffix = n;
-    }
-    else if (oc == 'h') *phang = n;
-    else if (n <= 1) {
-      if      (oc == 'l') *plast = n;
-      else if (oc == 'm') *pmin = n;
-    }
-    else goto badopt;
-  }
-
-  clear_error();
-  return;
-
-badopt:
-  err = NULL;
-  size = 0;
-  memstream = open_memstream(&err, &size);
-  fprintf(memstream, "Bad option: '%s'\n", saveopt);
-  fflush(memstream);
-  clear_error();
-  set_error(err);
-  if (memstream) fclose(memstream);
-  if (err) free(err);
-}
-
-
 static char **readlines(void)
 
 /* Reads lines from stdin until EOF, or until a blank line is encountered, */
@@ -574,11 +501,6 @@ int original_main(int argc, char * const *argv)
     }
   }
 
-  //while (*++argv) {
-    //parseopt(*argv, &widthbak, &prefixbak,
-             //&suffixbak, &hangbak, &lastbak, &minbak);
-    //if (*errmsg) goto parcleanup;
-  //}
   optind = 1; // The initial value of optind is set to one
   getoptlong_parse(&ver, &flag, argv, argc, &widthbak, &prefixbak, &suffixbak, &hangbak, &lastbak, &minbak);
   if (is_error() || flag) goto parcleanup;
