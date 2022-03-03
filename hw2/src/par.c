@@ -283,7 +283,7 @@ static void freelines(char **lines)
   free(lines);
 }
 
-static void getoptlong_parse(int *flag, char * const *argv, int argc, int *widthbak, int *prefixbak,
+static void getoptlong_parse(int *ver, int *flag, char * const *argv, int argc, int *widthbak, int *prefixbak,
   int *suffixbak, int *hangbak, int *lastbak, int *minbak)
 {
   int op = 0, r = 0;
@@ -321,6 +321,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
         set_error(err);
         if (memstream) fclose(memstream);
         if (err) free(err);
+        *ver = 1;
         break;
 
       case 'w':
@@ -334,6 +335,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
           set_error(err);
           if (memstream) fclose(memstream);
           if (err) free(err);
+          *ver = 0;
           return;
         }
         *widthbak = r;
@@ -350,6 +352,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
           set_error(err);
           if (memstream) fclose(memstream);
           if (err) free(err);
+          *ver = 0;
           return;
         }
         *prefixbak = r;
@@ -366,6 +369,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
           set_error(err);
           if (memstream) fclose(memstream);
           if (err) free(err);
+          *ver = 0;
           return;
         }
         *suffixbak = r;
@@ -394,6 +398,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
           set_error(err);
           if (memstream) fclose(memstream);
           if (err) free(err);
+          *ver = 0;
           return;
         }
         *hangbak = r;
@@ -414,6 +419,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
           set_error(err);
           if (memstream) fclose(memstream);
           if (err) free(err);
+          *ver = 0;
           return;
         }
         if (r != 0 && r != 1) {
@@ -426,6 +432,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
           set_error(err);
           if (memstream) fclose(memstream);
           if (err) free(err);
+          *ver = 0;
           return;
         }
         *lastbak = r;
@@ -446,6 +453,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
           set_error(err);
           if (memstream) fclose(memstream);
           if (err) free(err);
+          *ver = 0;
           return;
         }
         if (r != 0 && r != 1) {
@@ -458,6 +466,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
           set_error(err);
           if (memstream) fclose(memstream);
           if (err) free(err);
+          *ver = 0;
           return;
         }
         *minbak = r;
@@ -481,6 +490,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
 
       case '?':
         *flag = 1;
+        *ver = 0;
         return;
 
       default:
@@ -495,6 +505,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
             set_error(err);
             if (memstream) fclose(memstream);
             if (err) free(err);
+            *ver = 0;
             return;
           }
           if (r <= 8) *prefixbak = r;
@@ -510,6 +521,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
           set_error(err);
           if (memstream) fclose(memstream);
           if (err) free(err);
+          *ver = 0;
           return;
         }
     }
@@ -520,7 +532,7 @@ static void getoptlong_parse(int *flag, char * const *argv, int argc, int *width
 int original_main(int argc, char * const *argv)
 {
   int width, widthbak = -1, prefix, prefixbak = -1, suffix, suffixbak = -1,
-      hang, hangbak = -1, last, lastbak = -1, min, minbak = -1, c, flag;
+      hang, hangbak = -1, last, lastbak = -1, min, minbak = -1, c, flag = 0, ver = 0;
   char *parinit, *picopy = NULL, *opt, **inlines = NULL, **outlines = NULL,
        **line;
   const char * const whitechars = " \f\n\r\t\v";
@@ -548,8 +560,10 @@ int original_main(int argc, char * const *argv)
         vars = realloc(vars, (++num_of_vars) * sizeof(char *));
     }
     flag = 0;
-    getoptlong_parse(&flag, vars, num_of_vars, &widthbak, &prefixbak, &suffixbak, &hangbak, &lastbak, &minbak);
-    if (is_error() || flag) goto parcleanup;
+    ver = 0;
+    getoptlong_parse(&ver, &flag, vars, num_of_vars, &widthbak, &prefixbak, &suffixbak, &hangbak, &lastbak, &minbak);
+    if (flag) goto parcleanup;
+    if (is_error() && !ver) goto parcleanup;
     if (picopy) {
       free(picopy);
       picopy = NULL;
@@ -567,7 +581,7 @@ int original_main(int argc, char * const *argv)
   //}
   flag = 0;
   optind = 1; // The initial value of optind is set to one
-  getoptlong_parse(&flag, argv, argc, &widthbak, &prefixbak, &suffixbak, &hangbak, &lastbak, &minbak);
+  getoptlong_parse(&ver, &flag, argv, argc, &widthbak, &prefixbak, &suffixbak, &hangbak, &lastbak, &minbak);
   if (is_error() || flag) goto parcleanup;
 
   for (;;) {
@@ -615,6 +629,7 @@ parcleanup:
   if (is_error()) {
     if (!flag) report_error(stderr);
     clear_error();
+    if (!flag && ver) return EXIT_SUCCESS;
     return EXIT_FAILURE;
   }
   if (flag) return EXIT_FAILURE;
