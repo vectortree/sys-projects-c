@@ -234,7 +234,7 @@ static void getoptlong_parse(int *ver, int *flag, char * const *argv, int argc, 
       };
     int option_index = 0;
 
-    op = getopt_long (argc, argv, "-w:p:s:h::l::m::", long_options, &option_index);
+    op = getopt_long (argc, argv, "w:p:s:h::l::m::", long_options, &option_index);
     if (op == -1)
       break;
     switch (op) {
@@ -249,7 +249,7 @@ static void getoptlong_parse(int *ver, int *flag, char * const *argv, int argc, 
         if (memstream) fclose(memstream);
         if (err) free(err);
         *ver = 1;
-        break;
+        return;
 
       case 'w':
         if(!strtoudec(optarg, &r)) {
@@ -419,39 +419,40 @@ static void getoptlong_parse(int *ver, int *flag, char * const *argv, int argc, 
         *flag = 1;
         *ver = 0;
         return;
-
-      default:
-        if (only_digits(argv[optind - 1])) {
-          if (!strtoudec(argv[optind - 1], &r)) {
-            err = NULL;
-            size = 0;
-            memstream = open_memstream(&err, &size);
-            fprintf(memstream, "Bad argument: '%s'\n", argv[optind - 1]);
-            fflush(memstream);
-            clear_error();
-            set_error(err);
-            if (memstream) fclose(memstream);
-            if (err) free(err);
-            *ver = 0;
-            return;
-          }
-          if (r <= 8) *prefixbak = r;
-          else *widthbak = r;
-        }
-        else {
-          err = NULL;
-          size = 0;
-          memstream = open_memstream(&err, &size);
-          fprintf(memstream, "Bad option: '%s'\n", argv[optind - 1]);
-          fflush(memstream);
-          clear_error();
-          set_error(err);
-          if (memstream) fclose(memstream);
-          if (err) free(err);
-          *ver = 0;
-          return;
-        }
     }
+  }
+  while (optind < argc) {
+    if (only_digits(argv[optind])) {
+      if (!strtoudec(argv[optind], &r)) {
+        err = NULL;
+        size = 0;
+        memstream = open_memstream(&err, &size);
+        fprintf(memstream, "Bad argument: '%s'\n", argv[optind]);
+        fflush(memstream);
+        clear_error();
+        set_error(err);
+        if (memstream) fclose(memstream);
+        if (err) free(err);
+        *ver = 0;
+        return;
+      }
+      if (r <= 8) *prefixbak = r;
+      else *widthbak = r;
+    }
+    else {
+      err = NULL;
+      size = 0;
+      memstream = open_memstream(&err, &size);
+      fprintf(memstream, "Bad option: '%s'\n", argv[optind]);
+      fflush(memstream);
+      clear_error();
+      set_error(err);
+      if (memstream) fclose(memstream);
+      if (err) free(err);
+      *ver = 0;
+      return;
+    }
+    ++optind;
   }
 }
 
@@ -476,8 +477,16 @@ int original_main(int argc, char * const *argv)
     strcpy(picopy,parinit);
     opt = strtok(picopy,whitechars);
     int num_of_vars = 1;
-    if (opt)
-      vars = malloc(sizeof(char *));
+    if (opt) {
+      if (strcmp(opt, argv[0])) {
+        vars = malloc(2 * sizeof(char *));
+        vars[num_of_vars - 1] = argv[0];
+        ++num_of_vars;
+      }
+      else {
+        vars = malloc(sizeof(char *));
+      }
+    }
     while (opt) {
       //parseopt(opt, &widthbak, &prefixbak,
                //&suffixbak, &hangbak, &lastbak, &minbak);
@@ -489,8 +498,7 @@ int original_main(int argc, char * const *argv)
     flag = 0;
     ver = 0;
     getoptlong_parse(&ver, &flag, vars, num_of_vars, &widthbak, &prefixbak, &suffixbak, &hangbak, &lastbak, &minbak);
-    if (flag) goto parcleanup;
-    if (is_error() && !ver) goto parcleanup;
+    if (is_error() || flag) goto parcleanup;
     if (picopy) {
       free(picopy);
       picopy = NULL;
@@ -500,7 +508,8 @@ int original_main(int argc, char * const *argv)
       vars = NULL;
     }
   }
-
+  flag = 0;
+  ver = 0;
   optind = 1; // The initial value of optind is set to one
   getoptlong_parse(&ver, &flag, argv, argc, &widthbak, &prefixbak, &suffixbak, &hangbak, &lastbak, &minbak);
   if (is_error() || flag) goto parcleanup;
