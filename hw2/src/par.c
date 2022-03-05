@@ -303,17 +303,6 @@ static void getoptlong_parse(int *ver, int *flag, char * const *argv, int argc, 
         break;
 
       case 'h':
-        /** The long form of the option 'hang' may have optional arguments,
-         *  and thus, should work with whitespace (as specified in the HW doc)
-         *  between the option (long-form) and the option argument.
-         *  However, setting the field has_arg to optional_argument for the
-         *  'hang' option causes getopt_long() to set the optarg to the option
-         *  argument only if there is no whitespace between the option (long-form)
-         *  and the argument. To bypass this, we use the following condition:
-         */
-        if (optarg == NULL && optind < argc && argv[optind][0] != '-') {
-          optarg = argv[optind++];
-        }
         if (optarg == NULL) break;
         if(!strtoudec(optarg, &r)) {
           err = NULL;
@@ -332,9 +321,6 @@ static void getoptlong_parse(int *ver, int *flag, char * const *argv, int argc, 
         break;
 
       case 'l':
-        if (optarg == NULL && optind < argc && argv[optind][0] != '-') {
-          optarg = argv[optind++];
-        }
         if (optarg == NULL) break;
         if(!strtoudec(optarg, &r)) {
           err = NULL;
@@ -366,9 +352,6 @@ static void getoptlong_parse(int *ver, int *flag, char * const *argv, int argc, 
         break;
 
       case 'm':
-        if (optarg == NULL && optind < argc && argv[optind][0] != '-') {
-          optarg = argv[optind++];
-        }
         if (optarg == NULL) break;
         if(!strtoudec(optarg, &r)) {
           err = NULL;
