@@ -2,14 +2,13 @@
 #include "sfmm.h"
 
 int main(int argc, char const *argv[]) {
-    //sf_show_heap();
-    sf_malloc(9);
-    sf_show_heap();
-    //*ptr = 320320320e-320;
+    double* ptr = sf_malloc(sizeof(double));
 
-    //printf("%f\n", *ptr);
+    *ptr = 320320320e-320;
 
-    //sf_free(ptr);
+    printf("%f\n", *ptr);
+
+    sf_free(ptr);
 
     return EXIT_SUCCESS;
 }

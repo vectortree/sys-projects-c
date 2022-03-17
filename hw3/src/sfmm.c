@@ -39,6 +39,7 @@ int get_free_list_index(sf_size_t);
 sf_block *search_free_list(sf_block *, sf_size_t);
 
 void insert_block_free_list(sf_block *sentinel, sf_block *block) {
+    if(sentinel == NULL || block == NULL) return;
     sentinel->body.links.next->body.links.prev = block;
     block->body.links.next = sentinel->body.links.next;
     block->body.links.prev = sentinel;
@@ -46,17 +47,19 @@ void insert_block_free_list(sf_block *sentinel, sf_block *block) {
 }
 
 void delete_block_free_list(sf_block *block) {
+    if(block == NULL) return;
     block->body.links.prev->body.links.next = block->body.links.next;
     block->body.links.next->body.links.prev = block->body.links.prev;
 }
 
 void insert_block_quick_list(sf_block **first, sf_block **block) {
+    if(first == NULL || block == NULL) return;
     if(*first != NULL) (*block)->body.links.next = *first;
     *first = *block;
 }
 
 void *delete_block_quick_list(sf_block **first) {
-    if(*first == NULL) return NULL;
+    if(first == NULL || *first == NULL) return NULL;
     void *return_block = (*first)->body.payload;
     *first = (*first)->body.links.next;
     return return_block;
@@ -83,6 +86,7 @@ int get_free_list_index(sf_size_t size) {
 }
 
 sf_block *search_free_list(sf_block *free_list_head, sf_size_t block_size) {
+    if(free_list_head == NULL) return NULL;
     sf_block *free_block = free_list_head->body.links.next;
     while(free_block != free_list_head) {
         if(block_size <= GET_BLOCK_SIZE(free_block))
@@ -93,8 +97,10 @@ sf_block *search_free_list(sf_block *free_list_head, sf_size_t block_size) {
 }
 
 void align(sf_size_t *block_size) {
+    if(block_size == NULL) return;
     if(*block_size % ALIGN_SIZE != 0)
-        *block_size = MAX(MIN_BLOCK_SIZE, ALIGN_SIZE * ((*block_size / ALIGN_SIZE) + 1));
+        *block_size = ALIGN_SIZE * ((*block_size / ALIGN_SIZE) + 1);
+    if(*block_size < MIN_BLOCK_SIZE) *block_size = MIN_BLOCK_SIZE;
 }
 
 void *sf_malloc(sf_size_t size) {
