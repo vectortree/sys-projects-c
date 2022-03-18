@@ -461,7 +461,26 @@ void *sf_realloc(void *pp, sf_size_t rsize) {
 
 double sf_internal_fragmentation() {
     // TO BE IMPLEMENTED
-    abort();
+    // The current amount of internal fragmentation
+    // in the heap is defined to be:
+    // Total payload size / total block size
+    // If the heap is not initialized, then return 0
+    if(HEAP_START == HEAP_END) return 0;
+    double total_payload_size = 0, total_block_size = 0;
+    sf_block *block = NEXT_BLOCK(PROLOGUE);
+    while(block != EPILOGUE) {
+        // Count only allocated blocks with payloads
+        // Blocks in quick lists and free lists are not counted
+        // The prologue and epilogue are not counted
+        if((GET_ALLOC(block) == THIS_BLOCK_ALLOCATED) && (IN_QKLST(block) != IN_QUICK_LIST)) {
+            total_payload_size += GET_PAYLOAD_SIZE(block);
+            total_block_size += GET_BLOCK_SIZE(block);
+        }
+        block = NEXT_BLOCK(block);
+    }
+    if((total_payload_size == 0) || (total_block_size == 0))
+        return 0;
+    return (total_payload_size / total_block_size);
 }
 
 double sf_peak_utilization() {
