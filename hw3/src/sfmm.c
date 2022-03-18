@@ -243,13 +243,13 @@ int valid_pointer(void *pp) {
     // The pointer pp is considered invalid if at least one of the following holds:
     // (1) pp is NULL
     // (2) pp is not aligned on an ALIGN_SIZE (i.e., 16 byte) boundary
-    // (3) The block content of the block (sf_block *)((char *)pp - ALIGN_SIZE)
+    // (3) The content of the block (sf_block *)((char *)pp - ALIGN_SIZE)
     //     satisfies at least one of the following conditions:
     //     1. GET_BLOCK_SIZE(block) < MIN_BLOCK_SIZE
     //     2. (GET_BLOCK_SIZE(block) % ALIGN_SIZE) != 0
     //     3. &HEADER(block) < &(HEADER(NEXT_BLOCK(PROLOGUE)))
     //     4. &FOOTER(block) > &(EPILOGUE->prev_footer)
-    //     5. GET_ALLOC(block) == 0
+    //     5. (GET_ALLOC(block) == 0) || (IN_QKLST(block) == IN_QUICK_LIST)
     //     6. (GET_PREV_ALLOC(block) == 0) && (GET_ALLOC((PREV_BLOCK(block))) != 0)
     // This function returns 1 if the pointer pp is valid,
     // and 0 if the pointer pp is invalid
@@ -260,7 +260,11 @@ int valid_pointer(void *pp) {
     if((GET_BLOCK_SIZE(block) % ALIGN_SIZE) != 0) return 0;
     if(&HEADER(block) < &(HEADER(NEXT_BLOCK(PROLOGUE)))) return 0;
     if(&FOOTER(block) > &(EPILOGUE->prev_footer)) return 0;
-    if(GET_ALLOC(block) == 0) return 0;
+    // The block cannot be in a free list or quick list!
+    // If the block is free (i.e., its alloc bit is not set)
+    // OR the block is in a quick list (i.e., its in qklst bit is set),
+    // then the pointer is invalid
+    if((GET_ALLOC(block) == 0) || (IN_QKLST(block) == IN_QUICK_LIST)) return 0;
     if((GET_PREV_ALLOC(block) == 0) && (GET_ALLOC((PREV_BLOCK(block))) != 0)) return 0;
     return 1;
 }
