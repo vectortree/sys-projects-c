@@ -16,20 +16,21 @@
 #define MIN_BLOCK_SIZE (sizeof(sf_block))
 #define HEADER(p) (((sf_block *)p)->header)
 #define FOOTER(p) (*((sf_footer *)((char *)p + GET_BLOCK_SIZE(p))))
+#define XOR_MAGIC(content) ((content) ^ (MAGIC))
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
-#define PACK(payload_size, block_size, flags) (((sf_header)payload_size << 32) | (block_size) | (flags))
-#define GET_PAYLOAD_SIZE(p) (HEADER(p) >> 32)
-#define GET_BLOCK_SIZE(p) ((HEADER(p) & 0xffffffff) & ~(0xf))
-#define GET_ALLOC(p) (HEADER(p) & THIS_BLOCK_ALLOCATED)
-#define GET_PREV_ALLOC(p) (HEADER(p) & PREV_BLOCK_ALLOCATED)
-#define IN_QKLST(p) (HEADER(p) & IN_QUICK_LIST)
-#define SET_ALLOC(p) (HEADER(p) |= THIS_BLOCK_ALLOCATED)
-#define SET_PREV_ALLOC(p) (HEADER(p) |= PREV_BLOCK_ALLOCATED)
-#define SET_IN_QKLST(p) (HEADER(p) |= IN_QUICK_LIST)
+#define PACK(payload_size, block_size, flags) (((uint64_t)payload_size << 32) | (block_size) | (flags))
+#define GET_PAYLOAD_SIZE(p) (XOR_MAGIC(HEADER(p)) >> 32)
+#define GET_BLOCK_SIZE(p) ((XOR_MAGIC(HEADER(p)) & 0xffffffff) & ~(0xf))
+#define GET_ALLOC(p) (XOR_MAGIC(HEADER(p)) & THIS_BLOCK_ALLOCATED)
+#define GET_PREV_ALLOC(p) (XOR_MAGIC(HEADER(p)) & PREV_BLOCK_ALLOCATED)
+#define IN_QKLST(p) (XOR_MAGIC(HEADER(p)) & IN_QUICK_LIST)
+#define SET_ALLOC(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) | THIS_BLOCK_ALLOCATED))
+#define SET_PREV_ALLOC(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) | PREV_BLOCK_ALLOCATED))
+#define SET_IN_QKLST(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) | IN_QUICK_LIST))
 #define PROLOGUE ((sf_block *)HEAP_START)
 #define EPILOGUE ((sf_block *)((char *)HEAP_END - ALIGN_SIZE))
 #define NEXT_BLOCK(p) ((sf_block *)((char *)p + GET_BLOCK_SIZE(p)))
-#define PREV_BLOCK(p) ((sf_block *)((char *)p - ((((sf_block *)p)->prev_footer & 0xffffffff) & ~(0xf))))
+#define PREV_BLOCK(p) ((sf_block *)((char *)p - ((XOR_MAGIC(((sf_block *)p)->prev_footer) & 0xffffffff) & ~(0xf))))
 
 void insert_block_free_list(sf_block *, sf_block *);
 void delete_block_free_list(sf_block *);
@@ -132,7 +133,7 @@ sf_block *coalesce(sf_block *free_block) {
     // and return the appropriate block!
     else if(prev_alloc && !next_alloc) {
         delete_block_free_list(NEXT_BLOCK(free_block));
-        HEADER(free_block) = PACK(0, GET_BLOCK_SIZE(free_block) + GET_BLOCK_SIZE(NEXT_BLOCK(free_block)), GET_PREV_ALLOC(free_block));
+        HEADER(free_block) = XOR_MAGIC(PACK(0, GET_BLOCK_SIZE(free_block) + GET_BLOCK_SIZE(NEXT_BLOCK(free_block)), GET_PREV_ALLOC(free_block)));
         FOOTER(free_block) = HEADER(free_block);
         return free_block;
     }
@@ -140,7 +141,7 @@ sf_block *coalesce(sf_block *free_block) {
     // by updating the previous block's header and the free block's footer
     else if(!prev_alloc && next_alloc) {
         delete_block_free_list(PREV_BLOCK(free_block));
-        HEADER(PREV_BLOCK(free_block)) = PACK(0, GET_BLOCK_SIZE(PREV_BLOCK(free_block)) + GET_BLOCK_SIZE(free_block), GET_PREV_ALLOC(PREV_BLOCK(free_block)));
+        HEADER(PREV_BLOCK(free_block)) = XOR_MAGIC(PACK(0, GET_BLOCK_SIZE(PREV_BLOCK(free_block)) + GET_BLOCK_SIZE(free_block), GET_PREV_ALLOC(PREV_BLOCK(free_block))));
         FOOTER(PREV_BLOCK(free_block)) = HEADER(PREV_BLOCK(free_block));
         return PREV_BLOCK(free_block);
     }
@@ -149,7 +150,7 @@ sf_block *coalesce(sf_block *free_block) {
     else {
         delete_block_free_list(PREV_BLOCK(free_block));
         delete_block_free_list(NEXT_BLOCK(free_block));
-        HEADER(PREV_BLOCK(free_block)) = PACK(0, GET_BLOCK_SIZE(PREV_BLOCK(free_block)) + GET_BLOCK_SIZE(free_block) + GET_BLOCK_SIZE(NEXT_BLOCK(free_block)), GET_PREV_ALLOC(PREV_BLOCK(free_block)));
+        HEADER(PREV_BLOCK(free_block)) = XOR_MAGIC(PACK(0, GET_BLOCK_SIZE(PREV_BLOCK(free_block)) + GET_BLOCK_SIZE(free_block) + GET_BLOCK_SIZE(NEXT_BLOCK(free_block)), GET_PREV_ALLOC(PREV_BLOCK(free_block))));
         FOOTER(PREV_BLOCK(free_block)) = HEADER(PREV_BLOCK(free_block));
         return PREV_BLOCK(free_block);
     }
@@ -161,7 +162,7 @@ void *serve_alloc_request(sf_size_t size, sf_size_t block_size) {
     // sf_quick_lists[index] -> size: MIN_BLOCK_SIZE + index * ALIGN_SIZE
     for(int i = 0; i < NUM_QUICK_LISTS; ++i) {
         if((block_size == (MIN_BLOCK_SIZE + (i * ALIGN_SIZE))) && (sf_quick_lists[i].first != NULL)) {
-            HEADER(sf_quick_lists[i].first) = PACK(size, block_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(sf_quick_lists[i].first));
+            HEADER(sf_quick_lists[i].first) = XOR_MAGIC(PACK(size, block_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(sf_quick_lists[i].first)));
             SET_PREV_ALLOC(NEXT_BLOCK(sf_quick_lists[i].first));
             return delete_block_quick_list(&sf_quick_lists[i].first);
         }
@@ -182,13 +183,13 @@ void *serve_alloc_request(sf_size_t size, sf_size_t block_size) {
             // Split the block if splinter is at least MIN_BLOCK_SIZE (i.e., 32 bytes)
             sf_size_t splinter_size = GET_BLOCK_SIZE(block) - block_size;
             if(splinter_size >= MIN_BLOCK_SIZE) {
-                HEADER(block) = PACK(size, block_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(block));
-                HEADER(NEXT_BLOCK(block)) = PACK(0, splinter_size, PREV_BLOCK_ALLOCATED);
+                HEADER(block) = XOR_MAGIC(PACK(size, block_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(block)));
+                HEADER(NEXT_BLOCK(block)) = XOR_MAGIC(PACK(0, splinter_size, PREV_BLOCK_ALLOCATED));
                 FOOTER(NEXT_BLOCK(block)) = HEADER(NEXT_BLOCK(block));
                 insert_block_free_list(sf_free_list_heads + get_free_list_index(splinter_size), NEXT_BLOCK(block));
             }
             else {
-                HEADER(block) = PACK(size, GET_BLOCK_SIZE(block), THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(block));
+                HEADER(block) = XOR_MAGIC(PACK(size, GET_BLOCK_SIZE(block), THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(block)));
                 SET_PREV_ALLOC(NEXT_BLOCK(block));
             }
 
@@ -226,8 +227,6 @@ int extend_heap() {
 
 void *sf_malloc(sf_size_t size) {
     // TO BE IMPLEMENTED
-    // To be removed!
-    sf_set_magic(0x0);
     // If request size is 0, return NULL without setting sf_errno
     if(size == 0) return NULL;
     // This is the first allocation request if:
@@ -242,9 +241,9 @@ void *sf_malloc(sf_size_t size) {
         // Note: 32 + 16 = 48 bytes < 1024 bytes (one memory page), so
         // the prologue and epilogue fit nicely into one memory page
         sf_block *prologue = PROLOGUE;
-        HEADER(prologue) = PACK(0, sizeof(sf_block), THIS_BLOCK_ALLOCATED);
+        HEADER(prologue) = XOR_MAGIC(PACK(0, sizeof(sf_block), THIS_BLOCK_ALLOCATED));
         sf_block *epilogue = EPILOGUE;
-        HEADER(epilogue) = PACK(0, 0, THIS_BLOCK_ALLOCATED);
+        HEADER(epilogue) = XOR_MAGIC(PACK(0, 0, THIS_BLOCK_ALLOCATED));
         // Initialize the quick and free lists arrays
         init_lists();
         // Remainder of first memory page has size:
@@ -253,7 +252,7 @@ void *sf_malloc(sf_size_t size) {
         // In this case, we have 1024 - 48 = 976 bytes
         sf_block *remainder = NEXT_BLOCK(prologue);
         sf_size_t remainder_size = (char *)EPILOGUE - (char *)remainder;
-        HEADER(remainder) = PACK(0, remainder_size, PREV_BLOCK_ALLOCATED);
+        HEADER(remainder) = XOR_MAGIC(PACK(0, remainder_size, PREV_BLOCK_ALLOCATED));
         // Set the prev_footer field appropriately
         // This is the footer of the free block
         FOOTER(remainder) = HEADER(remainder);
@@ -297,8 +296,8 @@ void *sf_malloc(sf_size_t size) {
         // and coalescing it with any immediately preceding free block
         delete_block_free_list(block_start);
         // Set up a new epilogue each time the heap is extended
-        HEADER(EPILOGUE) = PACK(0, 0, THIS_BLOCK_ALLOCATED);
-        HEADER(block_start) = PACK(0, (char *)EPILOGUE - (char *)block_start, GET_PREV_ALLOC(block_start));
+        HEADER(EPILOGUE) = XOR_MAGIC(PACK(0, 0, THIS_BLOCK_ALLOCATED));
+        HEADER(block_start) = XOR_MAGIC(PACK(0, (char *)EPILOGUE - (char *)block_start, GET_PREV_ALLOC(block_start)));
         // Set the prev_footer field appropriately
         // This is the footer of the free block
         FOOTER(block_start) = HEADER(block_start);
