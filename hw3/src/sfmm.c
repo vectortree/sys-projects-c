@@ -17,7 +17,6 @@
 #define HEADER(p) (((sf_block *)p)->header)
 #define FOOTER(p) (*((sf_footer *)((char *)p + GET_BLOCK_SIZE(p))))
 #define XOR_MAGIC(content) ((content) ^ (MAGIC))
-#define MAX(x, y) ((x) > (y) ? (x) : (y))
 #define PACK(payload_size, block_size, flags) (((uint64_t)payload_size << 32) | (block_size) | (flags))
 #define GET_PAYLOAD_SIZE(p) (XOR_MAGIC(HEADER(p)) >> 32)
 #define GET_BLOCK_SIZE(p) ((XOR_MAGIC(HEADER(p)) & 0xffffffff) & ~(0xf))
@@ -26,6 +25,7 @@
 #define IN_QKLST(p) (XOR_MAGIC(HEADER(p)) & IN_QUICK_LIST)
 #define SET_ALLOC(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) | THIS_BLOCK_ALLOCATED))
 #define SET_PREV_ALLOC(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) | PREV_BLOCK_ALLOCATED))
+#define UNSET_PREV_ALLOC(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) & ~(PREV_BLOCK_ALLOCATED)))
 #define SET_IN_QKLST(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) | IN_QUICK_LIST))
 #define PROLOGUE ((sf_block *)HEAP_START)
 #define EPILOGUE ((sf_block *)((char *)HEAP_END - ALIGN_SIZE))
@@ -42,6 +42,8 @@ sf_block *coalesce(sf_block *);
 void *serve_alloc_request(sf_size_t, sf_size_t);
 void init_lists();
 int extend_heap();
+int valid_pointer(void *);
+void flush_quick_list(sf_block **);
 
 void insert_block_free_list(sf_block *sentinel, sf_block *block) {
     sentinel->body.links.next->body.links.prev = block;
@@ -57,7 +59,10 @@ void delete_block_free_list(sf_block *block) {
 }
 
 void insert_block_quick_list(sf_block **first, sf_block **block) {
-    if(*first != NULL) (*block)->body.links.next = *first;
+    if(*first == NULL)
+        (*block)->body.links.next = NULL;
+    else
+        (*block)->body.links.next = *first;
     *first = *block;
 }
 
@@ -68,22 +73,25 @@ void *delete_block_quick_list(sf_block **first) {
 }
 
 int get_free_list_index(sf_size_t size) {
-    // To find the appropriate free list, we need to first
-    // divide the size of the block by MIN_BLOCK_SIZE (integer division)
-    // Then we need to find the closest power of 2 that is smaller than the result
-    // If the result is 1, then return the first index (i.e., 0)
+    // If size == MIN_BLOCK_SIZE, return the first index (i.e, 0)
+    // To find the appropriate free list, we can divide the
+    // size of the block by MIN_BLOCK_SIZE (integer division)
+    // If the result is equal to 1, then return 1
+    // Then we can find the closest power of 2 that is smaller than the result
     // We need to return the index that corresponds to its interval
     // The index is i if 2^i is equal to the closest power of 2
-    // 0:[M, 2M], 1:(2M, 4M], 2:(4M, 8M], etc.
+    // 0:{M}, 1:(M, 2M], 2:(2M, 4M], 3:(4M, 8M], etc.
+    if(size == MIN_BLOCK_SIZE) return 0;
+    // Reaching this part means that size is greater than MIN_BLOCK_SIZE
+    // since the callers of this function MUST pass in a size that is at least MIN_BLOCK_SIZE
     uint32_t result = size / MIN_BLOCK_SIZE;
-    if(result == 1) return 0;
+    if(result == 1) return 1;
     uint64_t power = 1;
-    int index = -1;
-    while(result > power) {
+    int index = 0;
+    while((result > power) && (index < (NUM_FREE_LISTS - 1))) {
         power *= 2;
         ++index;
     }
-    if(index >= NUM_FREE_LISTS) index = NUM_FREE_LISTS - 1;
     return index;
 }
 
@@ -135,6 +143,7 @@ sf_block *coalesce(sf_block *free_block) {
         delete_block_free_list(NEXT_BLOCK(free_block));
         HEADER(free_block) = XOR_MAGIC(PACK(0, GET_BLOCK_SIZE(free_block) + GET_BLOCK_SIZE(NEXT_BLOCK(free_block)), GET_PREV_ALLOC(free_block)));
         FOOTER(free_block) = HEADER(free_block);
+        UNSET_PREV_ALLOC(NEXT_BLOCK(free_block));
         return free_block;
     }
     // For case 3, merge the previous block with the free block
@@ -143,6 +152,7 @@ sf_block *coalesce(sf_block *free_block) {
         delete_block_free_list(PREV_BLOCK(free_block));
         HEADER(PREV_BLOCK(free_block)) = XOR_MAGIC(PACK(0, GET_BLOCK_SIZE(PREV_BLOCK(free_block)) + GET_BLOCK_SIZE(free_block), GET_PREV_ALLOC(PREV_BLOCK(free_block))));
         FOOTER(PREV_BLOCK(free_block)) = HEADER(PREV_BLOCK(free_block));
+        UNSET_PREV_ALLOC(NEXT_BLOCK(PREV_BLOCK(free_block)));
         return PREV_BLOCK(free_block);
     }
     // For case 4, merge all three blocks together by updating the
@@ -152,6 +162,7 @@ sf_block *coalesce(sf_block *free_block) {
         delete_block_free_list(NEXT_BLOCK(free_block));
         HEADER(PREV_BLOCK(free_block)) = XOR_MAGIC(PACK(0, GET_BLOCK_SIZE(PREV_BLOCK(free_block)) + GET_BLOCK_SIZE(free_block) + GET_BLOCK_SIZE(NEXT_BLOCK(free_block)), GET_PREV_ALLOC(PREV_BLOCK(free_block))));
         FOOTER(PREV_BLOCK(free_block)) = HEADER(PREV_BLOCK(free_block));
+        UNSET_PREV_ALLOC(NEXT_BLOCK(PREV_BLOCK(free_block)));
         return PREV_BLOCK(free_block);
     }
 }
@@ -184,9 +195,12 @@ void *serve_alloc_request(sf_size_t size, sf_size_t block_size) {
             sf_size_t splinter_size = GET_BLOCK_SIZE(block) - block_size;
             if(splinter_size >= MIN_BLOCK_SIZE) {
                 HEADER(block) = XOR_MAGIC(PACK(size, block_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(block)));
-                HEADER(NEXT_BLOCK(block)) = XOR_MAGIC(PACK(0, splinter_size, PREV_BLOCK_ALLOCATED));
-                FOOTER(NEXT_BLOCK(block)) = HEADER(NEXT_BLOCK(block));
-                insert_block_free_list(sf_free_list_heads + get_free_list_index(splinter_size), NEXT_BLOCK(block));
+                sf_block *splinter = NEXT_BLOCK(block);
+                HEADER(splinter) = XOR_MAGIC(PACK(0, splinter_size, PREV_BLOCK_ALLOCATED));
+                FOOTER(splinter) = HEADER(splinter);
+                UNSET_PREV_ALLOC(NEXT_BLOCK(splinter));
+                splinter = coalesce(splinter);
+                insert_block_free_list(sf_free_list_heads + get_free_list_index(GET_BLOCK_SIZE(splinter)), splinter);
             }
             else {
                 HEADER(block) = XOR_MAGIC(PACK(size, GET_BLOCK_SIZE(block), THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(block)));
@@ -225,6 +239,46 @@ int extend_heap() {
     return 1;
 }
 
+int valid_pointer(void *pp) {
+    // The pointer pp is considered invalid if at least one of the following holds:
+    // (1) pp is NULL
+    // (2) pp is not aligned on an ALIGN_SIZE (i.e., 16 byte) boundary
+    // (3) The block content of the block (sf_block *)((char *)pp - ALIGN_SIZE)
+    //     satisfies at least one of the following conditions:
+    //     1. GET_BLOCK_SIZE(block) < MIN_BLOCK_SIZE
+    //     2. (GET_BLOCK_SIZE(block) % ALIGN_SIZE) != 0
+    //     3. &HEADER(block) < &(HEADER(NEXT_BLOCK(PROLOGUE)))
+    //     4. &FOOTER(block) > &(EPILOGUE->prev_footer)
+    //     5. GET_ALLOC(block) == 0
+    //     6. (GET_PREV_ALLOC(block) == 0) && (GET_ALLOC((PREV_BLOCK(block))) != 0)
+    // This function returns 1 if the pointer pp is valid,
+    // and 0 if the pointer pp is invalid
+    if(pp == NULL) return 0;
+    if(((uintptr_t)pp % ALIGN_SIZE) != 0) return 0;
+    sf_block *block = (sf_block *)((char *)pp - ALIGN_SIZE);
+    if(GET_BLOCK_SIZE(block) < MIN_BLOCK_SIZE) return 0;
+    if((GET_BLOCK_SIZE(block) % ALIGN_SIZE) != 0) return 0;
+    if(&HEADER(block) < &(HEADER(NEXT_BLOCK(PROLOGUE)))) return 0;
+    if(&FOOTER(block) > &(EPILOGUE->prev_footer)) return 0;
+    if(GET_ALLOC(block) == 0) return 0;
+    if((GET_PREV_ALLOC(block) == 0) && (GET_ALLOC((PREV_BLOCK(block))) != 0)) return 0;
+    return 1;
+}
+
+void flush_quick_list(sf_block **first) {
+    sf_block *block = *first;
+    while(block != NULL) {
+        HEADER(block) = XOR_MAGIC(PACK(0, GET_BLOCK_SIZE(block), GET_PREV_ALLOC(block)));
+        FOOTER(block) = HEADER(block);
+        UNSET_PREV_ALLOC(NEXT_BLOCK(block));
+        block = coalesce(block);
+        insert_block_free_list(sf_free_list_heads + get_free_list_index(GET_BLOCK_SIZE(block)), block);
+        block = block->body.links.next;
+    }
+    // Delete the entire quick list
+    *first = NULL;
+}
+
 void *sf_malloc(sf_size_t size) {
     // TO BE IMPLEMENTED
     // If request size is 0, return NULL without setting sf_errno
@@ -256,6 +310,7 @@ void *sf_malloc(sf_size_t size) {
         // Set the prev_footer field appropriately
         // This is the footer of the free block
         FOOTER(remainder) = HEADER(remainder);
+        UNSET_PREV_ALLOC(NEXT_BLOCK(remainder));
         // Insert remainder of first memory page into appropriate free list
         insert_block_free_list(sf_free_list_heads + get_free_list_index(remainder_size), remainder);
     }
@@ -301,6 +356,7 @@ void *sf_malloc(sf_size_t size) {
         // Set the prev_footer field appropriately
         // This is the footer of the free block
         FOOTER(block_start) = HEADER(block_start);
+        UNSET_PREV_ALLOC(NEXT_BLOCK(block_start));
         // Coalesce the free block before inserting it into an appropriate free list
         block_start = coalesce(block_start);
         // Insert free block into appropriate free list
@@ -314,7 +370,44 @@ void *sf_malloc(sf_size_t size) {
 
 void sf_free(void *pp) {
     // TO BE IMPLEMENTED
-    abort();
+    // Check if the pointer pp is valid
+    // Call abort() if pp is invalid
+    if(!valid_pointer(pp)) abort();
+    // The passed-in pointer pp (if valid) is a pointer to
+    // the payload of some block in the heap
+    // To access the actual block, use the following:
+    // (sf_block *)((char *)pp - ALIGN_SIZE)
+    sf_block *block = (sf_block *)((char *)pp - ALIGN_SIZE);
+    sf_size_t block_size = GET_BLOCK_SIZE(block);
+    // Free the block!
+    // Strategy: If for some i (where 0 <= i < NUM_QUICK_LISTS):
+    // block_size == (MIN_BLOCK_SIZE + (i * ALIGN_SIZE) holds,
+    // then insert the block into sf_quick_lists[i].first with an
+    // appropriate quick list header and increment the length field accordingly
+    // If sf_quick_lists[i].length == QUICK_LIST_MAX, then
+    // flush the quick list before inserting the block into it
+    for(int i = 0; i < NUM_QUICK_LISTS; ++i) {
+        if(block_size == (MIN_BLOCK_SIZE + (i * ALIGN_SIZE))) {
+            if(sf_quick_lists[i].length == QUICK_LIST_MAX) {
+                flush_quick_list(&sf_quick_lists[i].first);
+                sf_quick_lists[i].length = 0;
+            }
+            HEADER(block) = XOR_MAGIC(PACK(0, block_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(block) | IN_QUICK_LIST));
+            insert_block_quick_list(&sf_quick_lists[i].first, &block);
+            ++sf_quick_lists[i].length;
+            SET_PREV_ALLOC(NEXT_BLOCK(block));
+            return;
+        }
+    }
+    // If no such quick list exists, then coalesce the block (if possible)
+    // and insert the resulting block into its appropriate free list
+    // with the appropriate free list header (and footer)
+    // Make sure to unset the prev alloc bit for the immediately proceeding block
+    HEADER(block) = XOR_MAGIC(PACK(0, block_size, GET_PREV_ALLOC(block)));
+    FOOTER(block) = HEADER(block);
+    UNSET_PREV_ALLOC(NEXT_BLOCK(block));
+    block = coalesce(block);
+    insert_block_free_list(sf_free_list_heads + get_free_list_index(GET_BLOCK_SIZE(block)), block);
 }
 
 void *sf_realloc(void *pp, sf_size_t rsize) {
