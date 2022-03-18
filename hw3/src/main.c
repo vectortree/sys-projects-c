@@ -11,8 +11,8 @@ int main(int argc, char const *argv[]) {
     void *g = sf_malloc(64);
     void *h = sf_malloc(64);
     void *i = sf_malloc(64);
-    void *j = sf_malloc(64);
-    sf_free(a);
+    //void *j = sf_malloc(64);
+    //sf_free(a);
     sf_free(b);
     sf_free(c);
     sf_free(d);
@@ -21,8 +21,9 @@ int main(int argc, char const *argv[]) {
     sf_free(g);
     sf_free(h);
     sf_free(i);
-    sf_free(j);
-    //sf_free(a);
+    //sf_free(j);
+    sf_show_heap();
+    sf_realloc(a, 1);
     sf_show_heap();
 
     return EXIT_SUCCESS;

@@ -308,7 +308,7 @@ void *sf_malloc(sf_size_t size) {
         init_lists();
         // Remainder of first memory page has size:
         // PAGE_SZ - (size of EPILOGUE + size of PROLOGUE)
-        // Or equivalently, address of the start of epilogue - address of end of prologue
+        // Or equivalently, address of the start of epilogue - address of the end of prologue
         // In this case, we have 1024 - 48 = 976 bytes
         sf_block *remainder = NEXT_BLOCK(prologue);
         sf_size_t remainder_size = (char *)EPILOGUE - (char *)remainder;
@@ -418,7 +418,45 @@ void sf_free(void *pp) {
 
 void *sf_realloc(void *pp, sf_size_t rsize) {
     // TO BE IMPLEMENTED
-    abort();
+    if(!valid_pointer(pp)) {
+        sf_errno = EINVAL;
+        return NULL;
+    }
+    if(rsize == 0) {
+        sf_free(pp);
+        return NULL;
+    }
+    sf_block *block = (sf_block *)((char *)pp - ALIGN_SIZE);
+    sf_size_t payload_size = GET_PAYLOAD_SIZE(block);
+    if(rsize == payload_size) return pp;
+    else if(rsize > payload_size) {
+        void *new_payload = sf_malloc(rsize);
+        if(new_payload == NULL) return NULL;
+        memcpy(new_payload, pp, payload_size);
+        sf_free(pp);
+        return new_payload;
+    }
+    else {
+        sf_size_t total_size = GET_BLOCK_SIZE(block);
+        sf_size_t new_size = rsize + ROW_SIZE;
+        align(&new_size);
+        // Split the block if splinter is at least MIN_BLOCK_SIZE (i.e., 32 bytes)
+        sf_size_t splinter_size = total_size - new_size;
+        if(splinter_size >= MIN_BLOCK_SIZE) {
+            HEADER(block) = XOR_MAGIC(PACK(rsize, new_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(block)));
+            sf_block *splinter = NEXT_BLOCK(block);
+            HEADER(splinter) = XOR_MAGIC(PACK(0, splinter_size, PREV_BLOCK_ALLOCATED));
+            FOOTER(splinter) = HEADER(splinter);
+            UNSET_PREV_ALLOC(NEXT_BLOCK(splinter));
+            splinter = coalesce(splinter);
+            insert_block_free_list(sf_free_list_heads + get_free_list_index(GET_BLOCK_SIZE(splinter)), splinter);
+        }
+        else {
+            HEADER(block) = XOR_MAGIC(PACK(rsize, total_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(block)));
+            SET_PREV_ALLOC(NEXT_BLOCK(block));
+        }
+        return pp;
+    }
 }
 
 double sf_internal_fragmentation() {
