@@ -267,13 +267,15 @@ int valid_pointer(void *pp) {
 
 void flush_quick_list(sf_block **first) {
     sf_block *block = *first;
+    sf_block *next_block;
     while(block != NULL) {
+        next_block = block->body.links.next;
         HEADER(block) = XOR_MAGIC(PACK(0, GET_BLOCK_SIZE(block), GET_PREV_ALLOC(block)));
         FOOTER(block) = HEADER(block);
         UNSET_PREV_ALLOC(NEXT_BLOCK(block));
         block = coalesce(block);
         insert_block_free_list(sf_free_list_heads + get_free_list_index(GET_BLOCK_SIZE(block)), block);
-        block = block->body.links.next;
+        block = next_block;
     }
     // Delete the entire quick list
     *first = NULL;
