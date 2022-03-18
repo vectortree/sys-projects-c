@@ -15,7 +15,6 @@
 #define ROW_SIZE (sizeof(sf_header))
 #define MIN_BLOCK_SIZE (sizeof(sf_block))
 #define HEADER(p) (((sf_block *)p)->header)
-#define FOOTER(p) (*((sf_footer *)((char *)p + GET_BLOCK_SIZE(p))))
 #define XOR_MAGIC(content) ((content) ^ (MAGIC))
 #define PACK(payload_size, block_size, flags) (((uint64_t)payload_size << 32) | (block_size) | (flags))
 #define GET_PAYLOAD_SIZE(p) (XOR_MAGIC(HEADER(p)) >> 32)
@@ -27,38 +26,44 @@
 #define SET_PREV_ALLOC(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) | PREV_BLOCK_ALLOCATED))
 #define UNSET_PREV_ALLOC(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) & ~(PREV_BLOCK_ALLOCATED)))
 #define SET_IN_QKLST(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) | IN_QUICK_LIST))
+#define FOOTER(p) (*((sf_footer *)((char *)p + GET_BLOCK_SIZE(p))))
 #define PROLOGUE ((sf_block *)HEAP_START)
 #define EPILOGUE ((sf_block *)((char *)HEAP_END - ALIGN_SIZE))
 #define NEXT_BLOCK(p) ((sf_block *)((char *)p + GET_BLOCK_SIZE(p)))
 #define PREV_BLOCK(p) ((sf_block *)((char *)p - ((XOR_MAGIC(((sf_block *)p)->prev_footer) & 0xffffffff) & ~(0xf))))
 
-void insert_block_free_list(sf_block *, sf_block *);
-void delete_block_free_list(sf_block *);
-void insert_block_quick_list(sf_block **, sf_block **);
-void *delete_block_quick_list(sf_block **);
-int get_free_list_index(sf_size_t);
-sf_block *search_free_list(sf_block *, sf_size_t);
-sf_block *coalesce(sf_block *);
-void *serve_alloc_request(sf_size_t, sf_size_t);
-void init_lists();
-int extend_heap();
-int valid_pointer(void *);
-void flush_quick_list(sf_block **);
+// Helper functions should be defined as static
+static void insert_block_free_list(sf_block *, sf_block *);
+static void delete_block_free_list(sf_block *);
+static void insert_block_quick_list(sf_block **, sf_block **);
+static void *delete_block_quick_list(sf_block **);
+static int get_free_list_index(sf_size_t);
+static sf_block *search_free_list(sf_block *, sf_size_t);
+static sf_block *coalesce(sf_block *);
+static void *serve_alloc_request(sf_size_t, sf_size_t);
+static void init_lists();
+static int extend_heap();
+static int valid_pointer(void *);
+static void flush_quick_list(sf_block **);
+static double current_aggregate_payload();
+static void set_current_max_aggregate_payload();
 
-void insert_block_free_list(sf_block *sentinel, sf_block *block) {
+static double current_max_aggregate_payload = 0.0;
+
+static void insert_block_free_list(sf_block *sentinel, sf_block *block) {
     sentinel->body.links.next->body.links.prev = block;
     block->body.links.next = sentinel->body.links.next;
     block->body.links.prev = sentinel;
     sentinel->body.links.next = block;
 }
 
-void delete_block_free_list(sf_block *block) {
+static void delete_block_free_list(sf_block *block) {
     if(GET_ALLOC(block) == THIS_BLOCK_ALLOCATED) return;
     block->body.links.prev->body.links.next = block->body.links.next;
     block->body.links.next->body.links.prev = block->body.links.prev;
 }
 
-void insert_block_quick_list(sf_block **first, sf_block **block) {
+static void insert_block_quick_list(sf_block **first, sf_block **block) {
     if(*first == NULL)
         (*block)->body.links.next = NULL;
     else
@@ -66,13 +71,13 @@ void insert_block_quick_list(sf_block **first, sf_block **block) {
     *first = *block;
 }
 
-void *delete_block_quick_list(sf_block **first) {
+static void *delete_block_quick_list(sf_block **first) {
     void *return_block = (*first)->body.payload;
     *first = (*first)->body.links.next;
     return return_block;
 }
 
-int get_free_list_index(sf_size_t size) {
+static int get_free_list_index(sf_size_t size) {
     // If size == MIN_BLOCK_SIZE, return the first index (i.e, 0)
     // To find the appropriate free list, we can divide the
     // size of the block by MIN_BLOCK_SIZE (integer division)
@@ -95,7 +100,7 @@ int get_free_list_index(sf_size_t size) {
     return index;
 }
 
-sf_block *search_free_list(sf_block *free_list_head, sf_size_t block_size) {
+static sf_block *search_free_list(sf_block *free_list_head, sf_size_t block_size) {
     sf_block *free_block = free_list_head->body.links.next;
     while(free_block != free_list_head) {
         if(block_size <= GET_BLOCK_SIZE(free_block))
@@ -105,7 +110,7 @@ sf_block *search_free_list(sf_block *free_list_head, sf_size_t block_size) {
     return NULL;
 }
 
-void align(sf_size_t *block_size) {
+static void align(sf_size_t *block_size) {
     // Note: ALIGN_SIZE == sizeof(long double) == 16
     // If block size is not aligned to a 16-byte (double memory row) boundary,
     // then it must be rounded up to the next multiple of 16 (in bytes)
@@ -116,7 +121,7 @@ void align(sf_size_t *block_size) {
     if(*block_size < MIN_BLOCK_SIZE) *block_size = MIN_BLOCK_SIZE;
 }
 
-sf_block *coalesce(sf_block *free_block) {
+static sf_block *coalesce(sf_block *free_block) {
     // There are four possible cases to consider when
     // coalescing a free block with its immediately preceding
     // and proceeding blocks:
@@ -167,7 +172,7 @@ sf_block *coalesce(sf_block *free_block) {
     }
 }
 
-void *serve_alloc_request(sf_size_t size, sf_size_t block_size) {
+static void *serve_alloc_request(sf_size_t size, sf_size_t block_size) {
     // Check the quick lists array to see if there exists a block of the appropriate size
     // For each index from 0 to (NUM_QUICK_LISTS - 1):
     // sf_quick_lists[index] -> size: MIN_BLOCK_SIZE + index * ALIGN_SIZE
@@ -213,7 +218,7 @@ void *serve_alloc_request(sf_size_t size, sf_size_t block_size) {
     return NULL;
 }
 
-void init_lists() {
+static void init_lists() {
     // Initialize the quick lists array (sf_quick_lists)
     for(int i = 0; i < NUM_QUICK_LISTS; ++i) {
         sf_quick_lists[i].length = 0;
@@ -226,7 +231,7 @@ void init_lists() {
     }
 }
 
-int extend_heap() {
+static int extend_heap() {
     // Extends the heap by one memory page of size PAGE_SZ
     // If unsuccessful, sf_errno is set to ENOMEM, and a value of 0 is returned
     // Otherwise, it returns 1 (successful)
@@ -239,7 +244,7 @@ int extend_heap() {
     return 1;
 }
 
-int valid_pointer(void *pp) {
+static int valid_pointer(void *pp) {
     // The pointer pp is considered invalid if at least one of the following holds:
     // (1) pp is NULL
     // (2) pp is not aligned on an ALIGN_SIZE (i.e., 16 byte) boundary
@@ -249,8 +254,8 @@ int valid_pointer(void *pp) {
     //     2. (GET_BLOCK_SIZE(block) % ALIGN_SIZE) != 0
     //     3. &HEADER(block) < &(HEADER(NEXT_BLOCK(PROLOGUE)))
     //     4. &FOOTER(block) > &(EPILOGUE->prev_footer)
-    //     5. (GET_ALLOC(block) == 0) || (IN_QKLST(block) == IN_QUICK_LIST)
-    //     6. (GET_PREV_ALLOC(block) == 0) && (GET_ALLOC((PREV_BLOCK(block))) != 0)
+    //     5. (GET_ALLOC(block) != THIS_BLOCK_ALLOCATED) || (IN_QKLST(block) == IN_QUICK_LIST)
+    //     6. (GET_PREV_ALLOC(block) != PREV_BLOCK_ALLOCATED) && (GET_ALLOC((PREV_BLOCK(block))) == THIS_BLOCK_ALLOCATED)
     // This function returns 1 if the pointer pp is valid,
     // and 0 if the pointer pp is invalid
     if(pp == NULL) return 0;
@@ -264,12 +269,12 @@ int valid_pointer(void *pp) {
     // If the block is free (i.e., its alloc bit is not set)
     // OR the block is in a quick list (i.e., its in qklst bit is set),
     // then the pointer is invalid
-    if((GET_ALLOC(block) == 0) || (IN_QKLST(block) == IN_QUICK_LIST)) return 0;
-    if((GET_PREV_ALLOC(block) == 0) && (GET_ALLOC((PREV_BLOCK(block))) != 0)) return 0;
+    if((GET_ALLOC(block) != THIS_BLOCK_ALLOCATED) || (IN_QKLST(block) == IN_QUICK_LIST)) return 0;
+    if((GET_PREV_ALLOC(block) != PREV_BLOCK_ALLOCATED) && (GET_ALLOC((PREV_BLOCK(block))) == THIS_BLOCK_ALLOCATED)) return 0;
     return 1;
 }
 
-void flush_quick_list(sf_block **first) {
+static void flush_quick_list(sf_block **first) {
     sf_block *block = *first;
     sf_block *next_block;
     while(block != NULL) {
@@ -283,6 +288,27 @@ void flush_quick_list(sf_block **first) {
     }
     // Delete the entire quick list
     *first = NULL;
+}
+
+static double current_aggregate_payload() {
+    if(HEAP_START == HEAP_END) return 0.0;
+    sf_block *block = NEXT_BLOCK(PROLOGUE);
+    double aggregate_payload = 0.0;
+    while(block != EPILOGUE) {
+        // Count only allocated blocks with payloads
+        // Blocks in quick lists and free lists are not counted
+        // The prologue and epilogue are not counted
+        if((GET_ALLOC(block) == THIS_BLOCK_ALLOCATED) && (IN_QKLST(block) != IN_QUICK_LIST)) {
+            aggregate_payload += GET_PAYLOAD_SIZE(block);
+        }
+        block = NEXT_BLOCK(block);
+    }
+    return aggregate_payload;
+}
+
+static void set_current_max_aggregate_payload() {
+    double value = current_aggregate_payload();
+    current_max_aggregate_payload = ((value > current_max_aggregate_payload) ? value : current_max_aggregate_payload);
 }
 
 void *sf_malloc(sf_size_t size) {
@@ -329,7 +355,14 @@ void *sf_malloc(sf_size_t size) {
     // If the pointer to the payload is not null, then there exists an available block
     // to serve the allocation request; in this case, return the pointer to the payload
     // Otherwise, no block is available to satisfy the allocation request
-    if(payload != NULL) return payload;
+    if(payload != NULL) {
+        // Upon serving the allocation request, we need to
+        // recalculate the aggregate payload of the heap
+        // and update the current_max_aggregate_payload variable
+        // accordingly
+        set_current_max_aggregate_payload();
+        return payload;
+    }
     // If no block is available to satisfy the allocation request,
     // call sf_mem_grow to extend the heap until the heap has enough
     // free memory to serve the allocation request
@@ -371,7 +404,20 @@ void *sf_malloc(sf_size_t size) {
     // Now we have enough memory to serve the allocation request
     // This means that it should return a non-NULL pointer to the payload
     // of the allocation request back to the client
-    return serve_alloc_request(size, block_size);
+    // Upon serving the allocation request, we need to
+    // recalculate the aggregate payload of the heap
+    // and update the current_max_aggregate_payload variable
+    // accordingly
+    // Make sure to serve the allocation request BEFORE
+    // recalculating the aggregate payload of the heap and
+    // updating the current_max_aggregate_payload variable!
+    payload = serve_alloc_request(size, block_size);
+    // Here, the payload variable should always return a
+    // non-NULL pointer, but it doesn't hurt to defensively check
+    // this before setting the current_max_aggregate_payload variable
+    if(payload != NULL)
+        set_current_max_aggregate_payload();
+    return payload;
 }
 
 void sf_free(void *pp) {
@@ -463,10 +509,10 @@ double sf_internal_fragmentation() {
     // TO BE IMPLEMENTED
     // The current amount of internal fragmentation
     // in the heap is defined to be:
-    // Total payload size / total block size
-    // If the heap is not initialized, then return 0
-    if(HEAP_START == HEAP_END) return 0;
-    double total_payload_size = 0, total_block_size = 0;
+    // Total payload size / total block size (for allocated blocks)
+    // If the heap is not initialized, then return 0.0
+    if(HEAP_START == HEAP_END) return 0.0;
+    double total_payload_size = 0.0, total_block_size = 0.0;
     sf_block *block = NEXT_BLOCK(PROLOGUE);
     while(block != EPILOGUE) {
         // Count only allocated blocks with payloads
@@ -478,12 +524,34 @@ double sf_internal_fragmentation() {
         }
         block = NEXT_BLOCK(block);
     }
-    if((total_payload_size == 0) || (total_block_size == 0))
-        return 0;
+    if((total_payload_size == 0.0) || (total_block_size == 0.0))
+        return 0.0;
     return (total_payload_size / total_block_size);
 }
 
 double sf_peak_utilization() {
     // TO BE IMPLEMENTED
-    abort();
+    // The peak memory utilization is defined to be:
+    // Current maximum aggregate payload / Current heap size
+    // If the heap is not initialized, then return 0.0
+    if(HEAP_START == HEAP_END) return 0.0;
+    // The current maximum aggregate payload is stored
+    // in the static variable current_max_aggregate_payload
+    // and is updated every time the aggregate payload is increased
+    // The aggregate payload can only be increased by a call
+    // to sf_malloc() and sf_realloc()
+    // For sf_realloc(), the aggregate payload can only increase if
+    // the new payload size given by the client is greater than the
+    // current payload size of the block (if the new payload size is less than
+    // or equal to the current payload size, then the current maximum aggregate
+    // payload remains the same)
+    // Since a call to sf_malloc() by sf_realloc() is made for this case,
+    // setting the current_max_aggregate_payload variable is already handled
+    // by sf_malloc(); this means that sf_realloc() will never need to
+    // explicitly set this variable (and so can be left unchanged)
+    // A call to sf_free() will either decrease the aggregate payload
+    // or leave it unchanged, so there is no need to recalculate
+    // the aggregate payload and update the variable in sf_free()
+    // Current heap size is (HEAP_END - HEAP_START)
+    return (current_max_aggregate_payload / (double)(HEAP_END - HEAP_START));
 }

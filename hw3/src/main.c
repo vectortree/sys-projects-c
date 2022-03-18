@@ -11,7 +11,7 @@ int main(int argc, char const *argv[]) {
     //sf_show_heap();
     //sf_realloc(a, 5000);
     sf_show_heap();
-    printf("%lf\n",sf_internal_fragmentation());
+    //printf("%lf\n",sf_peak_utilization());
 
     return EXIT_SUCCESS;
 }
