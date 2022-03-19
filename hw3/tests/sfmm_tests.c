@@ -256,5 +256,85 @@ Test(sfmm_basecode_suite, realloc_smaller_block_free_block, .timeout = TEST_TIME
 //DO NOT DELETE THESE COMMENTS
 //############################################
 
-//Test(sfmm_student_suite, student_test_1, .timeout = TEST_TIMEOUT) {
-//}
+// Test #1
+// Allocated blocks, free list blocks, and quick list blocks
+// should have their flags set correctly
+Test(sfmm_student_suite, correct_flags, .timeout = TEST_TIMEOUT) {
+	// This is a simple sequence of sf_malloc() and sf_free() calls
+	void *x = sf_malloc(250);
+	// Payload size should be 250
+	// Block size should be 272
+	// Unused bit should be 0
+	// Alloc bit should be 1
+	// Prev alloc bit should 1
+	// In qklst bit should be 0
+	cr_assert(0b0000000000000000000000001111101000000000000000000000000100010110 == (*((sf_header *)((char *)x - sizeof(sf_header))) ^ MAGIC),
+		"Alloc'd block flag incorrect");
+	sf_free(x);
+	// Payload size should be 0
+	// Block size should be 976
+	// Unsused bit should be 0
+	// Alloc bit should be 0
+	// Prev alloc bit should be 1
+	// In qklst bit should be 0
+	cr_assert(0b0000000000000000000000000000000000000000000000000000001111010010 == (*((sf_header *)((char *)x - sizeof(sf_header))) ^ MAGIC),
+		"Free list block flag incorrect");
+	x = sf_malloc(80);
+	cr_assert(0b0000000000000000000000000101000000000000000000000000000001100110 == (*((sf_header *)((char *)x - sizeof(sf_header))) ^ MAGIC),
+		"Alloc'd block flag incorrect");
+	sf_free(x);
+	// Payload size should be 0
+	// Block size should be 96
+	// Unsused bit should be 0
+	// Alloc bit should be 1
+	// Prev alloc bit should be 1
+	// In qklst bit should be 1
+	cr_assert(0b0000000000000000000000000000000000000000000000000000000001100111 == (*((sf_header *)((char *)x - sizeof(sf_header))) ^ MAGIC),
+		"Quick list block flag incorrect");
+}
+
+// Test #2
+// Quick lists should be flushed properly after
+// reaching the capacity of QUICK_LIST_MAX
+// It should result in exactly ONE block in the
+// flushed quick list, and the blocks that were
+// previously in that quick list should be found
+// in their appropriate free lists after any coalescing
+Test(sfmm_student_suite, free_flushing, .timeout = TEST_TIMEOUT) {
+void *a = sf_malloc(130);
+void *b = sf_malloc(130);
+void *c = sf_malloc(130);
+void *d = sf_malloc(130);
+void *e = sf_malloc(130);
+void *f = sf_malloc(130);
+sf_free(a);
+sf_free(b);
+cr_assert(sf_quick_lists[7].length == 2, "Incorrect quick list length");
+sf_free(c);
+sf_free(d);
+sf_free(e);
+cr_assert(sf_quick_lists[7].length == 5, "Incorrect quick list length");
+sf_free(f);
+cr_assert(sf_quick_lists[7].length == 1, "Incorrect quick list length");
+cr_assert((sf_block *)((char *)a - 2*sizeof(sf_header)) == sf_free_list_heads[5].body.links.next, "First free list block incorrect");
+}
+
+// Test #3
+// Free list blocks should be placed in the correct free list
+Test(sfmm_student_suite, freelist_indices, .timeout = TEST_TIMEOUT) {
+}
+
+// Test #4
+// The most recently placed block in a quick list
+// should be at the FRONT of its quick list
+Test(sfmm_student_suite, free_quick_at_front, .timeout = TEST_TIMEOUT) {
+
+}
+
+// Test #5
+// Invalid pointers should be aborted for sf_free()
+// and sf_errno should be set to EINVAL with a return
+// value of NULL for sf_realloc()
+Test(sfmm_student_suite, free_realloc_invalid_pointers, .timeout = TEST_TIMEOUT) {
+
+}
