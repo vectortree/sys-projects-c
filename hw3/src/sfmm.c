@@ -27,10 +27,12 @@
 #define UNSET_PREV_ALLOC(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) & ~(PREV_BLOCK_ALLOCATED)))
 #define SET_IN_QKLST(p) (HEADER(p) = XOR_MAGIC(XOR_MAGIC(HEADER(p)) | IN_QUICK_LIST))
 #define FOOTER(p) (*((sf_footer *)((char *)p + GET_BLOCK_SIZE(p))))
+#define PREV_FOOTER(p) (((sf_block *)p)->prev_footer)
+#define GET_ALLOC_PREV_FOOTER(p) (XOR_MAGIC(PREV_FOOTER(p)) & THIS_BLOCK_ALLOCATED)
 #define PROLOGUE ((sf_block *)HEAP_START)
 #define EPILOGUE ((sf_block *)((char *)HEAP_END - ALIGN_SIZE))
 #define NEXT_BLOCK(p) ((sf_block *)((char *)p + GET_BLOCK_SIZE(p)))
-#define PREV_BLOCK(p) ((sf_block *)((char *)p - ((XOR_MAGIC(((sf_block *)p)->prev_footer) & 0xffffffff) & ~(0xf))))
+#define PREV_BLOCK(p) ((sf_block *)((char *)p - ((XOR_MAGIC(PREV_FOOTER(p)) & 0xffffffff) & ~(0xf))))
 
 // Helper functions should be defined as static
 static void insert_block_free_list(sf_block *, sf_block *);
@@ -267,7 +269,8 @@ static int valid_pointer(void *pp) {
     //     3. &HEADER(block) < &(HEADER(NEXT_BLOCK(PROLOGUE)))
     //     4. &FOOTER(block) > &(EPILOGUE->prev_footer)
     //     5. (GET_ALLOC(block) != THIS_BLOCK_ALLOCATED) || (IN_QKLST(block) == IN_QUICK_LIST)
-    //     6. (GET_PREV_ALLOC(block) != PREV_BLOCK_ALLOCATED) && (GET_ALLOC((PREV_BLOCK(block))) == THIS_BLOCK_ALLOCATED)
+    //     6a. (GET_PREV_ALLOC(block) != PREV_BLOCK_ALLOCATED) && (GET_ALLOC_PREV_FOOTER(block) == THIS_BLOCK_ALLOCATED)
+    //     6b. (GET_PREV_ALLOC(block) != PREV_BLOCK_ALLOCATED) && (GET_ALLOC_PREV_FOOTER(block) != THIS_BLOCK_ALLOCATED) && (XOR_MAGIC(HEADER((PREV_BLOCK(block)))) != XOR_MAGIC(PREV_FOOTER(block)))
     // This function returns 1 if the pointer pp is valid,
     // and 0 if the pointer pp is invalid
     if(pp == NULL) return 0;
@@ -282,7 +285,8 @@ static int valid_pointer(void *pp) {
     // OR the block is in a quick list (i.e., its in qklst bit is set),
     // then the pointer is invalid
     if((GET_ALLOC(block) != THIS_BLOCK_ALLOCATED) || (IN_QKLST(block) == IN_QUICK_LIST)) return 0;
-    if((GET_PREV_ALLOC(block) != PREV_BLOCK_ALLOCATED) && (GET_ALLOC((PREV_BLOCK(block))) == THIS_BLOCK_ALLOCATED)) return 0;
+    if((GET_PREV_ALLOC(block) != PREV_BLOCK_ALLOCATED) && (GET_ALLOC_PREV_FOOTER(block) == THIS_BLOCK_ALLOCATED)) return 0;
+    if((GET_PREV_ALLOC(block) != PREV_BLOCK_ALLOCATED) && (GET_ALLOC_PREV_FOOTER(block) != THIS_BLOCK_ALLOCATED) && (XOR_MAGIC(HEADER((PREV_BLOCK(block)))) != XOR_MAGIC(PREV_FOOTER(block)))) return 0;
     return 1;
 }
 
@@ -543,7 +547,7 @@ double sf_internal_fragmentation() {
 double sf_peak_utilization() {
     // TO BE IMPLEMENTED
     // The peak memory utilization is defined to be:
-    // Current maximum aggregate payload / Current heap size
+    // Current maximum aggregate payload / current heap size
     // If the heap is not initialized, then return 0.0
     if(HEAP_START == HEAP_END) return 0.0;
     // The current maximum aggregate payload is stored
