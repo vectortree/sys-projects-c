@@ -186,7 +186,7 @@ static void *serve_alloc_request(sf_size_t size, sf_size_t block_size) {
     // which equals index == ((ALIGN_SIZE * (k - 2)) / ALIGN_SIZE) == (k - 2)
     // Since MIN_BLOCK_SIZE <= block_size, we have that 2 <= k (because ALIGN_SIZE != 0)
     // or equivalently, 0 <= (k - 2)
-    // Hence index == (k - 2) >= 0
+    // Hence, index == (k - 2) >= 0
     sf_size_t index = ((block_size - MIN_BLOCK_SIZE) / ALIGN_SIZE);
     if((0 <= index) && (index < NUM_QUICK_LISTS)) {
         if(sf_quick_lists[index].first != NULL) {
