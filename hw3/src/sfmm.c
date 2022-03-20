@@ -175,12 +175,24 @@ static sf_block *coalesce(sf_block *free_block) {
 static void *serve_alloc_request(sf_size_t size, sf_size_t block_size) {
     // Check the quick lists array to see if there exists a block of the appropriate size
     // For each index from 0 to (NUM_QUICK_LISTS - 1):
-    // sf_quick_lists[index] -> size: MIN_BLOCK_SIZE + index * ALIGN_SIZE
-    for(int i = 0; i < NUM_QUICK_LISTS; ++i) {
-        if((block_size == (MIN_BLOCK_SIZE + (i * ALIGN_SIZE))) && (sf_quick_lists[i].first != NULL)) {
-            HEADER(sf_quick_lists[i].first) = XOR_MAGIC(PACK(size, block_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(sf_quick_lists[i].first)));
-            SET_PREV_ALLOC(NEXT_BLOCK(sf_quick_lists[i].first));
-            return delete_block_quick_list(&sf_quick_lists[i].first);
+    // sf_quick_lists[index] -> block_size is equal to MIN_BLOCK_SIZE + index * ALIGN_SIZE
+    // This implies that the index is equal to ((block_size - MIN_BLOCK_SIZE) / ALIGN_SIZE)
+    // Proposition: The index is always a nonnegative integer
+    // Proof:
+    // We have that index == ((block_size - MIN_BLOCK_SIZE) / ALIGN_SIZE)
+    // and MIN_BLOCK_SIZE == (ALIGN_SIZE * 2) <= block_size == (ALIGN_SIZE * k)
+    // for some integer k
+    // This means that index == (ALIGN_SIZE * k - ALIGN_SIZE * 2) / ALIGN_SIZE,
+    // which equals index == ((ALIGN_SIZE * (k - 2)) / ALIGN_SIZE) == (k - 2)
+    // Since MIN_BLOCK_SIZE <= block_size, we have that 2 <= k (because ALIGN_SIZE != 0)
+    // or equivalently, 0 <= (k - 2)
+    // Hence index == (k - 2) >= 0
+    sf_size_t index = ((block_size - MIN_BLOCK_SIZE) / ALIGN_SIZE);
+    if((0 <= index) && (index < NUM_QUICK_LISTS)) {
+        if(sf_quick_lists[index].first != NULL) {
+            HEADER(sf_quick_lists[index].first) = XOR_MAGIC(PACK(size, block_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(sf_quick_lists[index].first)));
+            SET_PREV_ALLOC(NEXT_BLOCK(sf_quick_lists[index].first));
+            return delete_block_quick_list(&sf_quick_lists[index].first);
         }
     }
     // If no blocks are available from the quick lists array of the appropriate size,
@@ -432,24 +444,23 @@ void sf_free(void *pp) {
     sf_block *block = (sf_block *)((char *)pp - ALIGN_SIZE);
     sf_size_t block_size = GET_BLOCK_SIZE(block);
     // Free the block!
-    // Strategy: If for some i (where 0 <= i < NUM_QUICK_LISTS):
-    // block_size == (MIN_BLOCK_SIZE + (i * ALIGN_SIZE) holds,
-    // then insert the block into sf_quick_lists[i].first with an
+    // Strategy: If for some index (where 0 <= index < NUM_QUICK_LISTS):
+    // block_size == (MIN_BLOCK_SIZE + (index * ALIGN_SIZE) holds,
+    // then insert the block into sf_quick_lists[index].first with an
     // appropriate quick list header and increment the length field accordingly
-    // If sf_quick_lists[i].length == QUICK_LIST_MAX, then
+    // If sf_quick_lists[index].length == QUICK_LIST_MAX, then
     // flush the quick list before inserting the block into it
-    for(int i = 0; i < NUM_QUICK_LISTS; ++i) {
-        if(block_size == (MIN_BLOCK_SIZE + (i * ALIGN_SIZE))) {
-            if(sf_quick_lists[i].length == QUICK_LIST_MAX) {
-                flush_quick_list(&sf_quick_lists[i].first);
-                sf_quick_lists[i].length = 0;
-            }
-            HEADER(block) = XOR_MAGIC(PACK(0, block_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(block) | IN_QUICK_LIST));
-            insert_block_quick_list(&sf_quick_lists[i].first, &block);
-            ++sf_quick_lists[i].length;
-            SET_PREV_ALLOC(NEXT_BLOCK(block));
-            return;
+    sf_size_t index = ((block_size - MIN_BLOCK_SIZE) / ALIGN_SIZE);
+    if((0 <= index) && (index < NUM_QUICK_LISTS)) {
+        if(sf_quick_lists[index].length == QUICK_LIST_MAX) {
+            flush_quick_list(&sf_quick_lists[index].first);
+            sf_quick_lists[index].length = 0;
         }
+        HEADER(block) = XOR_MAGIC(PACK(0, block_size, THIS_BLOCK_ALLOCATED | GET_PREV_ALLOC(block) | IN_QUICK_LIST));
+        insert_block_quick_list(&sf_quick_lists[index].first, &block);
+        ++sf_quick_lists[index].length;
+        SET_PREV_ALLOC(NEXT_BLOCK(block));
+        return;
     }
     // If no such quick list exists, then coalesce the block (if possible)
     // and insert the resulting block into its appropriate free list
