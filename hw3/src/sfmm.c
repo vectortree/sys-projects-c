@@ -3,6 +3,7 @@
  * If you submit with a main function in this file, you will get a zero.
  */
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -14,6 +15,8 @@
 #define HEAP_END (sf_mem_end())
 #define ROW_SIZE (sizeof(sf_header))
 #define MIN_BLOCK_SIZE (sizeof(sf_block))
+#define MAX_BLOCK_SIZE (UINT32_MAX / ALIGN_SIZE)
+#define MAX_PAYLOAD_SIZE (MAX_BLOCK_SIZE - ROW_SIZE)
 #define HEADER(p) (((sf_block *)p)->header)
 #define XOR_MAGIC(content) ((content) ^ (MAGIC))
 #define PACK(payload_size, block_size, flags) (((uint64_t)payload_size << 32) | (block_size) | (flags))
@@ -331,6 +334,12 @@ void *sf_malloc(sf_size_t size) {
     // TO BE IMPLEMENTED
     // If request size is 0, return NULL without setting sf_errno
     if(size == 0) return NULL;
+    // If request size exceeds MAX_PAYLOAD_SIZE, set sf_errno
+    // to EINVAL and return NULL
+    if(size > MAX_PAYLOAD_SIZE) {
+        sf_errno = EINVAL;
+        return NULL;
+    }
     // This is the first allocation request if:
     // Start address of heap == end address of heap
     if(HEAP_START == HEAP_END) {

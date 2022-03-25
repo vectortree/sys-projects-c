@@ -257,6 +257,7 @@ Test(sfmm_basecode_suite, realloc_smaller_block_free_block, .timeout = TEST_TIME
 //############################################
 
 // Test #1
+// Basic flag test
 // Allocated blocks, free list blocks, and quick list blocks
 // should have their flags set correctly
 Test(sfmm_student_suite, correct_flags, .timeout = TEST_TIMEOUT) {
@@ -316,25 +317,85 @@ sf_free(e);
 cr_assert(sf_quick_lists[7].length == 5, "Incorrect quick list length");
 sf_free(f);
 cr_assert(sf_quick_lists[7].length == 1, "Incorrect quick list length");
-cr_assert((sf_block *)((char *)a - 2*sizeof(sf_header)) == sf_free_list_heads[5].body.links.next, "First free list block incorrect");
+cr_assert((sf_block *)((char *)a - 2*sizeof(sf_header)) == sf_free_list_heads[5].body.links.next, "Free list address incorrect");
 }
 
 // Test #3
-// Free list blocks should be placed in the correct free list
-Test(sfmm_student_suite, freelist_indices, .timeout = TEST_TIMEOUT) {
+// Basic internal fragmentation test
+Test(sfmm_student_suite, internal_frag_basic, .timeout = TEST_TIMEOUT) {
+	double x = 1500, y = 999, z = 4;
+	double x_h = 1520, y_h = 1008, z_h = 32;
+	cr_assert(sf_internal_fragmentation() == 0.0, "Incorrect internal fragmentation ratio");
+	void *a = sf_malloc(x);
+	void *b = sf_malloc(y);
+	void *c = sf_malloc(z);
+	cr_assert(sf_internal_fragmentation() == (x + y + z) / (x_h + y_h + z_h), "Incorrect internal fragmentation ratio");
+	sf_free(a);
+	cr_assert(sf_internal_fragmentation() == (z + y) / (z_h + y_h), "Incorrect internal fragmentation ratio");
+	sf_free(c);
+	double w = 7817;
+	double w_h = 7840;
+	a = sf_malloc(w);
+	cr_assert(sf_internal_fragmentation() == (y + w) / (y_h + w_h), "Incorrect internal fragmentation ratio");
+	sf_free(b);
+	cr_assert(sf_internal_fragmentation() == w / w_h, "Incorrect internal fragmentation ratio");
+	sf_free(a);
+	cr_assert(sf_internal_fragmentation() == 0.0, "Incorrect internal fragmentation ratio");
 }
 
 // Test #4
-// The most recently placed block in a quick list
-// should be at the FRONT of its quick list
-Test(sfmm_student_suite, free_quick_at_front, .timeout = TEST_TIMEOUT) {
-
+// Basic peak memory utilization test
+Test(sfmm_student_suite, peak_util_basic, .timeout = TEST_TIMEOUT) {
+	double x = 1500, y = 999, z = 4;
+	cr_assert(sf_peak_utilization() == 0.0, "Incorrect peak utilization");
+	void *a = sf_malloc(x);
+	cr_assert(sf_peak_utilization() == (x) / (double)(sf_mem_end() - sf_mem_start()), "Incorrect peak utilization");
+	void *b = sf_malloc(y);
+	void *c = sf_malloc(z);
+	cr_assert(sf_peak_utilization() == (x + y + z) / (double)(sf_mem_end() - sf_mem_start()), "Incorrect peak utilization");
+	cr_assert(sf_peak_utilization() == (x + y + z) / (double)(sf_mem_end() - sf_mem_start()), "Incorrect peak utilization");
+	sf_free(c);
+	double w = 7817;
+	a = sf_realloc(a, w);
+	cr_assert(sf_peak_utilization() == (x + y + w) / (double)(sf_mem_end() - sf_mem_start()), "Incorrect peak utilization");
+	sf_free(b);
+	cr_assert(sf_peak_utilization() == (x + y + w) / (double)(sf_mem_end() - sf_mem_start()), "Incorrect peak utilization");
+	sf_free(a);
+	cr_assert(sf_peak_utilization() == (x + y + w) / (double)(sf_mem_end() - sf_mem_start()), "Incorrect peak utilization");
 }
 
 // Test #5
-// Invalid pointers should be aborted for sf_free()
-// and sf_errno should be set to EINVAL with a return
+// Invalid pointers should be handled properly,
+// e.g., sf_errno should be set to EINVAL with a return
 // value of NULL for sf_realloc()
-Test(sfmm_student_suite, free_realloc_invalid_pointers, .timeout = TEST_TIMEOUT) {
-
+Test(sfmm_student_suite, invalid_pointers, .timeout = TEST_TIMEOUT) {
+	void *x = sf_malloc(10400);
+	x = sf_realloc(NULL, 100);
+	cr_assert(x == NULL && sf_errno == EINVAL, "Invalid pointer not handled");
+	x = sf_realloc((void *)0x12402419,1);
+	cr_assert(x == NULL && sf_errno == EINVAL, "Invalid pointer not handled");
+	x = sf_realloc(x, 80);
+	cr_assert(x == NULL && sf_errno == EINVAL, "Invalid pointer not handled");
+	void *a = sf_malloc(1000);
+	a = sf_realloc(a, 10293);
+	cr_assert(a != NULL, "Expected a non-NULL pointer");
+	a = sf_realloc(((sf_block *)sf_mem_start()), 1);
+	cr_assert(a == NULL && sf_errno == EINVAL, "Invalid pointer not handled");
+	a = sf_realloc(((sf_block *)(sf_mem_start() + 8)), 1);
+	cr_assert(a == NULL && sf_errno == EINVAL, "Invalid pointer not handled");
+	a = sf_realloc(((sf_block *)sf_mem_end()), 1);
+	cr_assert(a == NULL && sf_errno == EINVAL, "Invalid pointer not handled");
+	a = sf_realloc(((sf_block *)(sf_mem_end() - 16)), 739);
+	cr_assert(a == NULL && sf_errno == EINVAL, "Invalid pointer not handled");
+	a = sf_malloc(99);
+	cr_assert(a != NULL, "Expected a non-NULL pointer");
+	a = sf_realloc(a, 1);
+	cr_assert(a != NULL, "Expected a non-NULL pointer");
+	sf_free(a);
+	a = sf_realloc(a, 100);
+	cr_assert(a == NULL && sf_errno == EINVAL, "Invalid pointer not handled");
+	a = sf_malloc(129);
+	a = sf_realloc(a, 0);
+	sf_errno = 0;
+	cr_assert(a == NULL && sf_errno != EINVAL, "Invalid pointer not handled");
 }
