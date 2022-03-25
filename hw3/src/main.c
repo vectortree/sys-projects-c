@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <errno.h>
 #include "sfmm.h"
 
 int main(int argc, char const *argv[]) {
