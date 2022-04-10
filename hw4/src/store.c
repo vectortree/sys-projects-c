@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <limits.h>
 
 /*
  * This is the "data store" module for Mush.
@@ -13,6 +15,20 @@
  * a variable as an integer is possible if the current value of the
  * variable is the string representation of an integer.
  */
+struct variable {
+    char *name;
+    char *value;
+};
+
+struct ds_node {
+    struct variable var;
+    struct ds_node *next;
+    struct ds_node *prev;
+};
+
+static struct {
+    struct ds_node *sentinel;
+} DATA_STORE;
 
 /**
  * @brief  Get the current value of a variable as a string.
@@ -30,7 +46,13 @@
  */
 char *store_get_string(char *var) {
     // TO BE IMPLEMENTED
-    abort();
+    if(DATA_STORE.sentinel == NULL || var == NULL) return NULL;
+    struct ds_node *node = DATA_STORE.sentinel->next;
+    while(node != DATA_STORE.sentinel) {
+        if(strcmp(node->var.name, var) == 0) return node->var.value;
+        node = node->next;
+    }
+    return NULL;
 }
 
 /**
@@ -48,7 +70,13 @@ char *store_get_string(char *var) {
  */
 int store_get_int(char *var, long *valp) {
     // TO BE IMPLEMENTED
-    abort();
+    char *value = store_get_string(var);
+    if(value == NULL) return -1;
+    char *endptr;
+    *valp = strtol(value, &endptr, 10);
+    if(*endptr != '\0' || errno == ERANGE || *valp > INT_MAX || *valp < INT_MIN)
+        return -1;
+    return 0;
 }
 
 /**
@@ -68,7 +96,46 @@ int store_get_int(char *var, long *valp) {
  */
 int store_set_string(char *var, char *val) {
     // TO BE IMPLEMENTED
-    abort();
+    if(var == NULL) return -1;
+    if(DATA_STORE.sentinel == NULL) {
+        DATA_STORE.sentinel = malloc(sizeof(struct ds_node));
+        if(DATA_STORE.sentinel == NULL) return -1;
+        DATA_STORE.sentinel->next = DATA_STORE.sentinel;
+        DATA_STORE.sentinel->prev = DATA_STORE.sentinel;
+    }
+    struct ds_node *node = DATA_STORE.sentinel->next;
+    while(node != DATA_STORE.sentinel) {
+        if(strcmp(node->var.name, var) == 0) {
+            if(node->var.value != NULL)
+                free(node->var.value);
+            if(val != NULL) {
+                node->var.value = malloc(strlen(val) + 1);
+                if(node->var.value == NULL) return -1;
+                strcpy(node->var.value, val);
+            }
+            else {
+                node->var.value = NULL;
+                node->prev->next = node->next;
+                node->next->prev = node->prev;
+            }
+            return 0;
+        }
+        node = node->next;
+    }
+    if(val == NULL) return 0;
+    node = malloc(sizeof(struct ds_node));
+    if(node == NULL) return -1;
+    node->var.name = malloc(strlen(var) + 1);
+    if(node->var.name == NULL) return -1;
+    strcpy(node->var.name, var);
+    node->var.value = malloc(strlen(val) + 1);
+    if(node->var.value == NULL) return -1;
+    strcpy(node->var.value, val);
+    node->next = DATA_STORE.sentinel;
+    node->prev = DATA_STORE.sentinel->prev;
+    DATA_STORE.sentinel->prev->next = node;
+    DATA_STORE.sentinel->prev = node;
+    return 0;
 }
 
 /**
@@ -85,7 +152,19 @@ int store_set_string(char *var, char *val) {
  */
 int store_set_int(char *var, long val) {
     // TO BE IMPLEMENTED
-    abort();
+    if(val > INT_MAX || val < INT_MIN) return -1;
+    int length = 0;
+    long copy_of_val = val;
+    while(copy_of_val != 0) {
+        copy_of_val /= 10;
+        ++length;
+    }
+    char *str_val = malloc(length + 1);
+    if(str_val == NULL) return -1;
+    sprintf(str_val, "%ld", val);
+    int return_val = store_set_string(var, str_val);
+    free(str_val);
+    return return_val;
 }
 
 /**
@@ -98,5 +177,16 @@ int store_set_int(char *var, long val) {
  */
 void store_show(FILE *f) {
     // TO BE IMPLEMENTED
-    abort();
+    if(f == NULL) return;
+    fprintf(f, "{");
+    if(DATA_STORE.sentinel != NULL) {
+        struct ds_node *node = DATA_STORE.sentinel->next;
+        while(node != DATA_STORE.sentinel->prev) {
+            fprintf(f, "%s=%s,", node->var.name, node->var.value);
+            node = node->next;
+        }
+        if(node != DATA_STORE.sentinel)
+            fprintf(f, "%s=%s", node->var.name, node->var.value);
+    }
+    fprintf(f, "}\n");
 }

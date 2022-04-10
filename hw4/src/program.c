@@ -76,7 +76,8 @@ int prog_insert(STMT *stmt) {
     // TO BE IMPLEMENTED
     if(stmt == NULL) return -1;
     if(PROG_STORE.sentinel == NULL) {
-        PROG_STORE.sentinel = malloc(sizeof(struct ps_node *));
+        PROG_STORE.sentinel = malloc(sizeof(struct ps_node));
+        if(PROG_STORE.sentinel == NULL) return -1;
         PROG_STORE.sentinel->next = PROG_STORE.sentinel;
         PROG_STORE.sentinel->prev = PROG_STORE.sentinel;
         PROG_STORE.length = 0;
@@ -99,7 +100,7 @@ int prog_insert(STMT *stmt) {
         node = node->next;
         ++i;
     }
-    new_node = malloc(sizeof(struct ps_node *));
+    new_node = malloc(sizeof(struct ps_node));
     if(new_node == NULL) return -1;
     new_node->statement = stmt;
     new_node->next = node;
