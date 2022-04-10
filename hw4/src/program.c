@@ -130,8 +130,8 @@ int prog_insert(STMT *stmt) {
  */
 int prog_delete(int min, int max) {
     // TO BE IMPLEMENTED
-    if(min > max) return -1;
-    if(PROG_STORE.sentinel == NULL) return -1;
+    if(min > max) return 0;
+    if(PROG_STORE.sentinel == NULL) return 0;
     struct ps_node *node = PROG_STORE.sentinel->next;
     int i = 1;
     while(node != PROG_STORE.sentinel) {
