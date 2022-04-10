@@ -12,6 +12,18 @@
  * There should be no fixed limit on the number of statements that the program
  * store can hold.
  */
+static int prog_ctr = 1;
+
+struct ps_node {
+    STMT *statement;
+    struct ps_node *next;
+    struct ps_node *prev;
+};
+
+static struct {
+    int length;
+    struct ps_node *sentinel;
+} PROG_STORE;
 
 /**
  * @brief  Output a listing of the current contents of the program store.
@@ -26,7 +38,21 @@
  */
 int prog_list(FILE *out) {
     // TO BE IMPLEMENTED
-    abort();
+    if(out == NULL) return -1;
+    if(PROG_STORE.sentinel == NULL) {
+        fprintf(out, "-->\n");
+        return 0;
+    }
+    struct ps_node *node = PROG_STORE.sentinel->next;
+    int i = 1;
+    while(node != PROG_STORE.sentinel) {
+        if(i++ == prog_ctr) fprintf(out, "-->\n");
+        show_stmt(out, node->statement);
+        node = node->next;
+    }
+    if(prog_ctr == PROG_STORE.length + 1)
+        fprintf(out, "-->\n");
+    return 0;
 }
 
 /**
@@ -48,7 +74,41 @@ int prog_list(FILE *out) {
  */
 int prog_insert(STMT *stmt) {
     // TO BE IMPLEMENTED
-    abort();
+    if(stmt == NULL) return -1;
+    if(PROG_STORE.sentinel == NULL) {
+        PROG_STORE.sentinel = malloc(sizeof(struct ps_node *));
+        PROG_STORE.sentinel->next = PROG_STORE.sentinel;
+        PROG_STORE.sentinel->prev = PROG_STORE.sentinel;
+        PROG_STORE.length = 0;
+    }
+    struct ps_node *node = PROG_STORE.sentinel->next;
+    struct ps_node *new_node;
+    int i = 1;
+    int flag = 0;
+    while(node != PROG_STORE.sentinel) {
+        if(node->statement->lineno == stmt->lineno) {
+            free_stmt(node->statement);
+            node->statement = stmt;
+            return 0;
+        }
+        if(stmt->lineno < node->statement->lineno) {
+            if(i <= prog_ctr) ++prog_ctr;
+            flag = 1;
+            break;
+        }
+        node = node->next;
+        ++i;
+    }
+    new_node = malloc(sizeof(struct ps_node *));
+    if(new_node == NULL) return -1;
+    new_node->statement = stmt;
+    new_node->next = node;
+    new_node->prev = node->prev;
+    node->prev->next = new_node;
+    node->prev = new_node;
+    ++PROG_STORE.length;
+    if(!flag && prog_ctr > 1 && PROG_STORE.length == prog_ctr) ++prog_ctr;
+    return 0;
 }
 
 /**
@@ -70,7 +130,22 @@ int prog_insert(STMT *stmt) {
  */
 int prog_delete(int min, int max) {
     // TO BE IMPLEMENTED
-    abort();
+    if(min > max) return -1;
+    if(PROG_STORE.sentinel == NULL) return -1;
+    struct ps_node *node = PROG_STORE.sentinel->next;
+    int i = 1;
+    while(node != PROG_STORE.sentinel) {
+        if(min <= node->statement->lineno && node->statement->lineno <= max) {
+            if(prog_ctr > i) --prog_ctr;
+            free_stmt(node->statement);
+            node->prev->next = node->next;
+            node->next->prev = node->prev;
+            --PROG_STORE.length;
+        }
+        node = node->next;
+        ++i;
+    }
+    return 0;
 }
 
 /**
@@ -80,7 +155,7 @@ int prog_delete(int min, int max) {
  */
 void prog_reset(void) {
     // TO BE IMPLEMENTED
-    abort();
+    prog_ctr = 1;
 }
 
 /**
@@ -96,7 +171,14 @@ void prog_reset(void) {
  */
 STMT *prog_fetch(void) {
     // TO BE IMPLEMENTED
-    abort();
+    if(PROG_STORE.sentinel == NULL) return NULL;
+    int i = 1;
+    struct ps_node *node = PROG_STORE.sentinel->next;
+    while(node != PROG_STORE.sentinel) {
+        if(i++ == prog_ctr) return node->statement;
+        node = node->next;
+    }
+    return NULL;
 }
 
 /**
@@ -112,7 +194,8 @@ STMT *prog_fetch(void) {
  */
 STMT *prog_next() {
     // TO BE IMPLEMENTED
-    abort();
+    ++prog_ctr;
+    return prog_fetch();
 }
 
 /**
@@ -132,5 +215,17 @@ STMT *prog_next() {
  */
 STMT *prog_goto(int lineno) {
     // TO BE IMPLEMENTED
-    abort();
+    if(lineno <= 0) return NULL;
+    if(PROG_STORE.sentinel == NULL) return NULL;
+    int i = 1;
+    struct ps_node *node = PROG_STORE.sentinel->next;
+    while(node != PROG_STORE.sentinel) {
+        if(lineno == node->statement->lineno) {
+            prog_ctr = i;
+            return node->statement;
+        }
+        node = node->next;
+        ++i;
+    }
+    return NULL;
 }
