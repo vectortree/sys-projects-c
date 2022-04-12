@@ -12,6 +12,9 @@
 #include "mush.h"
 #include "debug.h"
 
+char **get_argv_array(ARG *);
+void sigchld_handler(int);
+
 /*
  * This is the "jobs" module for Mush.
  * It maintains a table of jobs in various stages of execution, and it
@@ -37,6 +40,62 @@
  * In general, there will be other state information stored for each job,
  * as required by the implementation of the various functions in this module.
  */
+typedef enum {
+    NEW,
+    RUNNING,
+    COMPLETED,
+    ABORTED,
+    CANCELED
+} STATUS_VAL;
+
+static const char *status[] = {"new", "running", "completed", "aborted", "canceled"};
+
+typedef struct job {
+    pid_t pgid;
+    STATUS_VAL status;
+    PIPELINE *pipeline;
+} JOB;
+
+static struct {
+    JOB jobs[MAX_JOBS];
+} JOBS_MODULE;
+
+static int length;
+
+char **get_argv_array(ARG *args_list) {
+    ARG *node = args_list;
+    int length = 0;
+    while(node != NULL) {
+        node = node->next;
+        ++length;
+    }
+    // args_array should be NULL-terminated
+    char **args_array = calloc(length + 1, sizeof(char *));
+    node = args_list;
+    int i = 0;
+    while(node != NULL) {
+        args_array[i++] = eval_to_string(node->expr);
+        node = node->next;
+    }
+    args_array[i] = NULL;
+    return args_array;
+}
+
+void sigchld_handler(int signal) {
+    pid_t wpid;
+    int status;
+    if((wpid = waitpid(-1, &status, WNOHANG)) < 0) return;
+    for(int i = 0; i < length; ++i) {
+        if(JOBS_MODULE.jobs[i].pgid == wpid) {
+            if(WIFEXITED(status))
+                JOBS_MODULE.jobs[i].status = COMPLETED;
+            // Set job status to aborted accordingly if it isn't canceled
+            else if(WTERMSIG(status) == SIGKILL && JOBS_MODULE.jobs[i].status != CANCELED)
+                JOBS_MODULE.jobs[i].status = ABORTED;
+            break;
+        }
+    }
+}
 
 /**
  * @brief  Initialize the jobs module.
@@ -48,7 +107,8 @@
  */
 int jobs_init(void) {
     // TO BE IMPLEMENTED
-    abort();
+    length = 0;
+    return 0;
 }
 
 /**
@@ -63,7 +123,17 @@ int jobs_init(void) {
  */
 int jobs_fini(void) {
     // TO BE IMPLEMENTED
-    abort();
+    for(int i = 0; i < length; ++i) {
+        char terminated = (JOBS_MODULE.jobs[i].status == COMPLETED) || (JOBS_MODULE.jobs[i].status == ABORTED) || (JOBS_MODULE.jobs[i].status == CANCELED);
+        if(!terminated) {
+            if(jobs_cancel(i) < 0) return -1;
+        }
+        if(JOBS_MODULE.jobs[i].status == CANCELED) {
+            if(jobs_wait(i) < 0) return -1;
+        }
+        if(jobs_expunge(i) < 0) return -1;
+    }
+    return 0;
 }
 
 /**
@@ -84,7 +154,13 @@ int jobs_fini(void) {
  */
 int jobs_show(FILE *file) {
     // TO BE IMPLEMENTED
-    abort();
+    if(file == NULL) return -1;
+    for(int jobid = 0; jobid < length; ++jobid) {
+        fprintf(file, "%d\t%d\t%s\t", jobid, JOBS_MODULE.jobs[jobid].pgid, status[JOBS_MODULE.jobs[jobid].status]);
+        show_pipeline(file, JOBS_MODULE.jobs[jobid].pipeline);
+        fprintf(file, "\n");
+    }
+    return 0;
 }
 
 /**
@@ -116,13 +192,91 @@ int jobs_show(FILE *file) {
  * object when it is finished with it.  This means that the caller should not pass
  * a pipeline object that is shared with any other data structure, but rather should
  * make a copy to be passed to this function.
- * 
+ *
  * @return  -1 if the pipeline could not be initialized properly, otherwise the
  * value returned is the job ID assigned to the pipeline.
  */
 int jobs_run(PIPELINE *pline) {
     // TO BE IMPLEMENTED
-    abort();
+    if(pline == NULL) return -1;
+    if(length == MAX_JOBS) return -1;
+    pid_t pid = fork();
+    if(pid < 0) {
+        perror("fork");
+        return -1;
+    }
+    if(pid == 0) {
+        // Leader process (child of main mush process)
+        // Create all an array for the child process id's (corresponding to
+        // the commands of the pipeline).
+        COMMAND *cmd_node = pline->commands;
+        setpgid(getpid(), getpid());
+        int num_of_children = 0;
+        while(cmd_node != NULL) {
+            ++num_of_children;
+            cmd_node = cmd_node->next;
+        }
+        pid_t *cpid = calloc(num_of_children, sizeof(pid_t));
+        cmd_node = pline->commands;
+        // Spawn child processes for each command and execute them
+        for(int i = 0; cmd_node != NULL; cmd_node = cmd_node->next, ++i) {
+            cpid[i] = fork();
+            if(cpid[i] < 0) {
+                perror("fork");
+                exit(EXIT_FAILURE);
+            }
+            if(cpid[i] == 0) {
+                // Child process (corresponding to a command)
+                setpgid(getpid(), getppid());
+                char **argv = get_argv_array(cmd_node->args);
+                /*if(i == 0) {
+                    // If "input_file" is set for the pipeline, then
+                    // the standard input of the process running the
+                    // first command in the pipeline should be redirected
+                    // from the specified input file.
+                    if(pline->input_file != NULL) {
+                        int fd;
+                        if((fd = open(pline->input_file, O_RDONLY)) < 0) {
+                            perror("open");
+                            exit(EXIT_FAILURE);
+                        }
+                    }
+                }*/
+                execvp(argv[0], argv);
+                perror("execvp");
+                exit(EXIT_FAILURE);
+            }
+        }
+        for(int i = 0; i < num_of_children; ++i) {
+            if(cpid[i] > 0) {
+                int status;
+                if(waitpid(cpid[i], &status, 0) < 0) {
+                    perror("waitpid");
+                    exit(EXIT_FAILURE);
+                }
+                if(i == num_of_children - 1) {
+                    // If last child terminated normally,
+                    // then return with its exit status
+                    if(WIFEXITED(status)) exit(WEXITSTATUS(status));
+                }
+            }
+        }
+        // Otherwise, terminate leader via SIGABRT
+        kill(getpid(), SIGABRT);
+        perror("kill");
+        exit(EXIT_FAILURE);
+    }
+    else {
+        // Main mush process
+        if(signal(SIGCHLD, sigchld_handler) == SIG_ERR) {
+            perror("signal");
+            return -1;
+        }
+        JOBS_MODULE.jobs[length].pgid = pid;
+        JOBS_MODULE.jobs[length].status = RUNNING;
+        JOBS_MODULE.jobs[length].pipeline = copy_pipeline(pline);
+        return length++;
+    }
 }
 
 /**
@@ -137,7 +291,18 @@ int jobs_run(PIPELINE *pline) {
  */
 int jobs_wait(int jobid) {
     // TO BE IMPLEMENTED
-    abort();
+    if(length == 0) return -1;
+    if(jobid < 0 || jobid >= length) return -1;
+    int child_status;
+    if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, 0) < 0) return -1;
+    if(WIFEXITED(child_status)) {
+        JOBS_MODULE.jobs[jobid].status = COMPLETED;
+        return WEXITSTATUS(child_status);
+    }
+    // Set job status to aborted if it isn't canceled
+    else if(WTERMSIG(child_status) == SIGKILL && JOBS_MODULE.jobs[jobid].status != CANCELED)
+        JOBS_MODULE.jobs[jobid].status = ABORTED;
+    return -1;
 }
 
 /**
@@ -151,8 +316,18 @@ int jobs_wait(int jobid) {
  * has terminated, or -1 if the job has not yet terminated or if any other error occurs.
  */
 int jobs_poll(int jobid) {
-    // TO BE IMPLEMENTED
-    abort();
+    if(length == 0) return -1;
+    if(jobid < 0 || jobid >= length) return -1;
+    int child_status;
+    if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, WNOHANG) < 0) return -1;
+    if(WIFEXITED(child_status)) {
+        JOBS_MODULE.jobs[jobid].status = COMPLETED;
+        return WEXITSTATUS(child_status);
+    }
+    // Set job status to aborted if it isn't canceled
+    else if(WTERMSIG(child_status) == SIGKILL && JOBS_MODULE.jobs[jobid].status != CANCELED)
+        JOBS_MODULE.jobs[jobid].status = ABORTED;
+    return -1;
 }
 
 /**
@@ -169,7 +344,15 @@ int jobs_poll(int jobid) {
  */
 int jobs_expunge(int jobid) {
     // TO BE IMPLEMENTED
-    abort();
+    if(length == 0) return -1;
+    if(jobid < 0 || jobid >= length) return -1;
+    char status = (JOBS_MODULE.jobs[jobid].status == COMPLETED) || (JOBS_MODULE.jobs[jobid].status == ABORTED) || (JOBS_MODULE.jobs[jobid].status == CANCELED);
+    if(!status) return -1;
+    if(JOBS_MODULE.jobs[jobid].pipeline != NULL)
+        free_pipeline(JOBS_MODULE.jobs[jobid].pipeline);
+    JOBS_MODULE.jobs[jobid].pipeline = NULL;
+    --length;
+    return 0;
 }
 
 /**
@@ -191,7 +374,16 @@ int jobs_expunge(int jobid) {
  */
 int jobs_cancel(int jobid) {
     // TO BE IMPLEMENTED
-    abort();
+    if(length == 0) return -1;
+    if(jobid < 0 || jobid >= length) return -1;
+    char status = (JOBS_MODULE.jobs[jobid].status == COMPLETED) || (JOBS_MODULE.jobs[jobid].status == ABORTED) || (JOBS_MODULE.jobs[jobid].status == CANCELED);
+    if(status) return -1;
+    if(killpg(JOBS_MODULE.jobs[jobid].pgid, SIGKILL) < 0) {
+        perror("kill");
+        return -1;
+    }
+    JOBS_MODULE.jobs[jobid].status = CANCELED;
+    return 0;
 }
 
 /**
@@ -219,5 +411,6 @@ char *jobs_get_output(int jobid) {
  */
 int jobs_pause(void) {
     // TO BE IMPLEMENTED
+    // Use sigprocmask and sigsuspend
     abort();
 }

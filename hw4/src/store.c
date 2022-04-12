@@ -188,5 +188,5 @@ void store_show(FILE *f) {
         if(node != DATA_STORE.sentinel)
             fprintf(f, "%s=%s", node->var.name, node->var.value);
     }
-    fprintf(f, "}\n");
+    fprintf(f, "}");
 }
