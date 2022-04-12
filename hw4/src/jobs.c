@@ -82,6 +82,8 @@ char **get_argv_array(ARG *args_list) {
 }
 
 void sigchld_handler(int signal) {
+    // Installer: main mush process
+    // Triggered when a job (i.e., leader process) is terminated
     pid_t wpid;
     int status;
     if((wpid = waitpid(-1, &status, WNOHANG)) < 0) return;
@@ -89,9 +91,9 @@ void sigchld_handler(int signal) {
         if(JOBS_MODULE.jobs[i].pgid == wpid) {
             if(WIFEXITED(status))
                 JOBS_MODULE.jobs[i].status = COMPLETED;
-            // Set job status to aborted accordingly if it isn't canceled
-            else if(WTERMSIG(status) == SIGKILL && JOBS_MODULE.jobs[i].status != CANCELED)
-                JOBS_MODULE.jobs[i].status = ABORTED;
+            // Set job status to aborted or canceled accordingly
+            else if(signal == SIGKILL) JOBS_MODULE.jobs[i].status = CANCELED;
+            else JOBS_MODULE.jobs[i].status = ABORTED;
             break;
         }
     }
@@ -299,9 +301,9 @@ int jobs_wait(int jobid) {
         JOBS_MODULE.jobs[jobid].status = COMPLETED;
         return WEXITSTATUS(child_status);
     }
-    // Set job status to aborted if it isn't canceled
-    else if(WTERMSIG(child_status) == SIGKILL && JOBS_MODULE.jobs[jobid].status != CANCELED)
-        JOBS_MODULE.jobs[jobid].status = ABORTED;
+    // Set job status to aborted or canceled accordingly
+    else if(WTERMSIG(child_status) == SIGKILL) JOBS_MODULE.jobs[jobid].status = CANCELED;
+    else JOBS_MODULE.jobs[jobid].status = ABORTED;
     return -1;
 }
 
@@ -324,9 +326,9 @@ int jobs_poll(int jobid) {
         JOBS_MODULE.jobs[jobid].status = COMPLETED;
         return WEXITSTATUS(child_status);
     }
-    // Set job status to aborted if it isn't canceled
-    else if(WTERMSIG(child_status) == SIGKILL && JOBS_MODULE.jobs[jobid].status != CANCELED)
-        JOBS_MODULE.jobs[jobid].status = ABORTED;
+    // Set job status to aborted or canceled accordingly
+    else if(WTERMSIG(child_status) == SIGKILL) JOBS_MODULE.jobs[jobid].status = CANCELED;
+    else JOBS_MODULE.jobs[jobid].status = ABORTED;
     return -1;
 }
 
@@ -382,7 +384,6 @@ int jobs_cancel(int jobid) {
         perror("kill");
         return -1;
     }
-    JOBS_MODULE.jobs[jobid].status = CANCELED;
     return 0;
 }
 
