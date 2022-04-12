@@ -62,6 +62,8 @@ static struct {
 
 static int length;
 
+static volatile int leader_exit_status;
+
 char **get_argv_array(ARG *args_list) {
     ARG *node = args_list;
     int length = 0;
@@ -89,11 +91,14 @@ void sigchld_handler(int signal) {
     if((wpid = waitpid(-1, &status, WNOHANG)) < 0) return;
     for(int i = 0; i < length; ++i) {
         if(JOBS_MODULE.jobs[i].pgid == wpid) {
-            if(WIFEXITED(status))
+            if(WIFEXITED(status)) {
+                leader_exit_status = WEXITSTATUS(status);
                 JOBS_MODULE.jobs[i].status = COMPLETED;
+            }
             // Set job status to aborted or canceled accordingly
-            else if(signal == SIGKILL) JOBS_MODULE.jobs[i].status = CANCELED;
-            else JOBS_MODULE.jobs[i].status = ABORTED;
+            if(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL)
+                JOBS_MODULE.jobs[i].status = CANCELED;
+            else if(WIFSIGNALED(status)) JOBS_MODULE.jobs[i].status = ABORTED;
             break;
         }
     }
@@ -295,15 +300,13 @@ int jobs_wait(int jobid) {
     // TO BE IMPLEMENTED
     if(length == 0) return -1;
     if(jobid < 0 || jobid >= length) return -1;
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigsuspend(&mask);
     int child_status;
-    if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, 0) < 0) return -1;
-    if(WIFEXITED(child_status)) {
-        JOBS_MODULE.jobs[jobid].status = COMPLETED;
-        return WEXITSTATUS(child_status);
+    if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, 0) < 0) {
+        if(errno == ECHILD) return leader_exit_status;
     }
-    // Set job status to aborted or canceled accordingly
-    else if(WTERMSIG(child_status) == SIGKILL) JOBS_MODULE.jobs[jobid].status = CANCELED;
-    else JOBS_MODULE.jobs[jobid].status = ABORTED;
     return -1;
 }
 
@@ -320,15 +323,16 @@ int jobs_wait(int jobid) {
 int jobs_poll(int jobid) {
     if(length == 0) return -1;
     if(jobid < 0 || jobid >= length) return -1;
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigsuspend(&mask);
     int child_status;
-    if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, WNOHANG) < 0) return -1;
+    if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, WNOHANG) < 0) {
+        if(errno == ECHILD) return leader_exit_status;
+    }
     if(WIFEXITED(child_status)) {
-        JOBS_MODULE.jobs[jobid].status = COMPLETED;
         return WEXITSTATUS(child_status);
     }
-    // Set job status to aborted or canceled accordingly
-    else if(WTERMSIG(child_status) == SIGKILL) JOBS_MODULE.jobs[jobid].status = CANCELED;
-    else JOBS_MODULE.jobs[jobid].status = ABORTED;
     return -1;
 }
 
@@ -384,6 +388,7 @@ int jobs_cancel(int jobid) {
         perror("kill");
         return -1;
     }
+    JOBS_MODULE.jobs[jobid].status = CANCELED;
     return 0;
 }
 
