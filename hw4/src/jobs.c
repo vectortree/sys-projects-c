@@ -404,8 +404,7 @@ int jobs_wait(int jobid) {
     if(length == 0) return -1;
     if(jobid < 0 || jobid >= length) return -1;
     sigset_t mask;
-    sigfillset(&mask);
-    sigdelset(&mask, SIGCHLD);
+    sigemptyset(&mask);
     sigsuspend(&mask);
     int child_status;
     if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, 0) < 0) {
@@ -482,11 +481,11 @@ int jobs_cancel(int jobid) {
     if(jobid < 0 || jobid >= length) return -1;
     char status = (JOBS_MODULE.jobs[jobid].status == COMPLETED) || (JOBS_MODULE.jobs[jobid].status == ABORTED) || (JOBS_MODULE.jobs[jobid].status == CANCELED);
     if(status) return -1;
+    JOBS_MODULE.jobs[jobid].status = ABORTED;
     if(killpg(JOBS_MODULE.jobs[jobid].pgid, SIGKILL) < 0) {
         perror("kill failed");
         return -1;
     }
-    //JOBS_MODULE.jobs[jobid].status = CANCELED;
     return 0;
 }
 
@@ -502,7 +501,7 @@ int jobs_cancel(int jobid) {
  */
 char *jobs_get_output(int jobid) {
     // TO BE IMPLEMENTED
-    abort();
+    return NULL;
 }
 
 /**
