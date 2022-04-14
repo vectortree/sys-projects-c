@@ -217,6 +217,11 @@ int jobs_run(PIPELINE *pline) {
     // TO BE IMPLEMENTED
     if(pline == NULL) return -1;
     if(length == MAX_JOBS) return -1;
+    int capture_output_pipe_fd[2];
+    if(pipe(capture_output_pipe_fd) < 0) {
+        perror("pipe failed");
+        return -1;
+    }
     pid_t pid = fork();
     if(pid < 0) {
         perror("fork failed");
@@ -308,7 +313,10 @@ int jobs_run(PIPELINE *pline) {
                     // pipe to the main Mush process, where it should be read and saved in the data
                     // store as the value of a variable, as described in the assignment handout.
                     if(pline->capture_output) {
-
+                        if(dup2(capture_output_pipe_fd[1], STDOUT_FILENO) < 0) {
+                            perror("dup2 failed");
+                            exit(EXIT_FAILURE);
+                        }
                     }
                     // If "capture_output" is not set for the pipeline, but "output_file" is non-NULL,
                     // then the standard output of the last process in the pipeline should be redirected
@@ -343,6 +351,14 @@ int jobs_run(PIPELINE *pline) {
                         exit(EXIT_FAILURE);
                     }
                 }
+                if(close(capture_output_pipe_fd[0]) < 0) {
+                    perror("close failed");
+                    exit(EXIT_FAILURE);
+                }
+                if(close(capture_output_pipe_fd[1]) < 0) {
+                    perror("close failed");
+                    exit(EXIT_FAILURE);
+                }
                 execvp(argv[0], argv);
                 perror("execvp failed");
                 abort();
@@ -357,6 +373,14 @@ int jobs_run(PIPELINE *pline) {
                 perror("close failed");
                 exit(EXIT_FAILURE);
             }
+        }
+        if(close(capture_output_pipe_fd[0]) < 0) {
+            perror("close failed");
+            exit(EXIT_FAILURE);
+        }
+        if(close(capture_output_pipe_fd[1]) < 0) {
+            perror("close failed");
+            exit(EXIT_FAILURE);
         }
         int status;
         for(int i = 0; i < num_of_children; ++i) {
@@ -381,6 +405,18 @@ int jobs_run(PIPELINE *pline) {
         if(signal(SIGCHLD, sigchld_handler) == SIG_ERR) {
             perror("signal failed");
             return -1;
+        }
+        if(dup2(capture_output_pipe_fd[0], STDIN_FILENO) < 0) {
+            perror("dup2 failed");
+            exit(EXIT_FAILURE);
+        }
+        if(close(capture_output_pipe_fd[0]) < 0) {
+            perror("close failed");
+            exit(EXIT_FAILURE);
+        }
+        if(close(capture_output_pipe_fd[1]) < 0) {
+            perror("close failed");
+            exit(EXIT_FAILURE);
         }
         JOBS_MODULE.jobs[length].pgid = pid;
         JOBS_MODULE.jobs[length].status = RUNNING;
@@ -501,6 +537,11 @@ int jobs_cancel(int jobid) {
  */
 char *jobs_get_output(int jobid) {
     // TO BE IMPLEMENTED
+    if(length == 0) return NULL;
+    if(jobid < 0 || jobid >= length) return NULL;
+    char status = (JOBS_MODULE.jobs[jobid].status == COMPLETED) || (JOBS_MODULE.jobs[jobid].status == ABORTED) || (JOBS_MODULE.jobs[jobid].status == CANCELED);
+    if(!status || !JOBS_MODULE.jobs[jobid].pipeline->capture_output) return NULL;
+
     return NULL;
 }
 
