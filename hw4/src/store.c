@@ -103,15 +103,19 @@ int store_set_string(char *var, char *val) {
         DATA_STORE.sentinel->next = DATA_STORE.sentinel;
         DATA_STORE.sentinel->prev = DATA_STORE.sentinel;
     }
+    size_t size;
+    FILE *memstream;
     struct ds_node *node = DATA_STORE.sentinel->next;
     while(node != DATA_STORE.sentinel) {
         if(strcmp(node->var.name, var) == 0) {
             if(node->var.value != NULL)
                 free(node->var.value);
             if(val != NULL) {
-                node->var.value = malloc(strlen(val) + 1);
-                if(node->var.value == NULL) return -1;
-                strcpy(node->var.value, val);
+                memstream = open_memstream(&node->var.value, &size);
+                if(memstream == NULL) return -1;
+                fprintf(memstream, "%s", val);
+                fflush(memstream);
+                fclose(memstream);
             }
             else {
                 node->var.value = NULL;
@@ -125,12 +129,18 @@ int store_set_string(char *var, char *val) {
     if(val == NULL) return 0;
     node = malloc(sizeof(struct ds_node));
     if(node == NULL) return -1;
-    node->var.name = malloc(strlen(var) + 1);
-    if(node->var.name == NULL) return -1;
-    strcpy(node->var.name, var);
-    node->var.value = malloc(strlen(val) + 1);
-    if(node->var.value == NULL) return -1;
-    strcpy(node->var.value, val);
+    size = 0;
+    memstream = open_memstream(&node->var.name, &size);
+    if(memstream == NULL) return -1;
+    fprintf(memstream, "%s", var);
+    fflush(memstream);
+    fclose(memstream);
+    size = 0;
+    memstream = open_memstream(&node->var.value, &size);
+    if(memstream == NULL) return -1;
+    fprintf(memstream, "%s", val);
+    fflush(memstream);
+    fclose(memstream);
     node->next = DATA_STORE.sentinel;
     node->prev = DATA_STORE.sentinel->prev;
     DATA_STORE.sentinel->prev->next = node;
@@ -159,9 +169,13 @@ int store_set_int(char *var, long val) {
         copy_of_val /= 10;
         ++length;
     }
-    char *str_val = malloc(length + 1);
-    if(str_val == NULL) return -1;
-    sprintf(str_val, "%ld", val);
+    size_t size = 0;
+    char *str_val;
+    FILE *memstream = open_memstream(&str_val, &size);
+    if(memstream == NULL) return -1;
+    fprintf(memstream, "%ld", val);
+    fflush(memstream);
+    fclose(memstream);
     int return_val = store_set_string(var, str_val);
     free(str_val);
     return return_val;

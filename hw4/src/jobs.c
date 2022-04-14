@@ -62,7 +62,7 @@ static struct {
 
 static int length;
 
-static volatile int leader_exit_status;
+static volatile sig_atomic_t leader_exit_status;
 
 char **get_argv_array(ARG *args_list) {
     ARG *node = args_list;
@@ -86,9 +86,13 @@ char **get_argv_array(ARG *args_list) {
 void sigchld_handler(int signal) {
     // Installer: main mush process
     // Triggered when a job (i.e., leader process) is terminated
+    int olderrno = errno;
     pid_t wpid;
     int status;
-    if((wpid = waitpid(-1, &status, WNOHANG)) < 0) return;
+    if((wpid = waitpid(-1, &status, WNOHANG)) < 0) {
+        errno = olderrno;
+        return;
+    }
     for(int i = 0; i < length; ++i) {
         if(JOBS_MODULE.jobs[i].pgid == wpid) {
             if(WIFEXITED(status)) {
@@ -96,12 +100,18 @@ void sigchld_handler(int signal) {
                 JOBS_MODULE.jobs[i].status = COMPLETED;
             }
             // Set job status to aborted or canceled accordingly
-            if(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL)
+            else if(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL) {
+                leader_exit_status = SIGKILL + 128;
                 JOBS_MODULE.jobs[i].status = CANCELED;
-            else if(WIFSIGNALED(status)) JOBS_MODULE.jobs[i].status = ABORTED;
+            }
+            else if(WIFSIGNALED(status)) {
+                leader_exit_status = SIGABRT + 128;
+                JOBS_MODULE.jobs[i].status = ABORTED;
+            }
             break;
         }
     }
+    errno = olderrno;
 }
 
 /**
@@ -163,7 +173,7 @@ int jobs_show(FILE *file) {
     // TO BE IMPLEMENTED
     if(file == NULL) return -1;
     for(int jobid = 0; jobid < length; ++jobid) {
-        fprintf(file, "%d\t%d\t%s\t", jobid, JOBS_MODULE.jobs[jobid].pgid, status[JOBS_MODULE.jobs[jobid].status]);
+        fprintf(file, "%d\t%d\t%10s\t", jobid, JOBS_MODULE.jobs[jobid].pgid, status[JOBS_MODULE.jobs[jobid].status]);
         show_pipeline(file, JOBS_MODULE.jobs[jobid].pipeline);
         fprintf(file, "\n");
     }
@@ -209,7 +219,7 @@ int jobs_run(PIPELINE *pline) {
     if(length == MAX_JOBS) return -1;
     pid_t pid = fork();
     if(pid < 0) {
-        perror("fork");
+        perror("fork failed");
         return -1;
     }
     if(pid == 0) {
@@ -224,59 +234,152 @@ int jobs_run(PIPELINE *pline) {
             cmd_node = cmd_node->next;
         }
         pid_t *cpid = calloc(num_of_children, sizeof(pid_t));
+        int **pipe_fd = calloc(num_of_children - 1, sizeof(int *));
+        for(int i = 0; i < num_of_children - 1; ++i) {
+            pipe_fd[i] = calloc(2, sizeof(int));
+            if(pipe(pipe_fd[i]) < 0) {
+                perror("pipe failed");
+                exit(EXIT_FAILURE);
+            }
+        }
         cmd_node = pline->commands;
         // Spawn child processes for each command and execute them
         for(int i = 0; cmd_node != NULL; cmd_node = cmd_node->next, ++i) {
             cpid[i] = fork();
             if(cpid[i] < 0) {
-                perror("fork");
+                perror("fork failed");
                 exit(EXIT_FAILURE);
             }
             if(cpid[i] == 0) {
                 // Child process (corresponding to a command)
                 setpgid(getpid(), getppid());
                 char **argv = get_argv_array(cmd_node->args);
-                /*if(i == 0) {
+                if(i > 0 && i < num_of_children - 1) {
+                    if(dup2(pipe_fd[i - 1][0], STDIN_FILENO) < 0) {
+                        perror("dup2 failed");
+                        exit(EXIT_FAILURE);
+                    }
+                    if(dup2(pipe_fd[i][1], STDOUT_FILENO) < 0) {
+                        perror("dup2 failed");
+                        exit(EXIT_FAILURE);
+                    }
+                }
+                if(i == 0) {
+                    if(num_of_children > 1) {
+                        if(dup2(pipe_fd[i][1], STDOUT_FILENO) < 0) {
+                            perror("dup2 failed");
+                            exit(EXIT_FAILURE);
+                        }
+                    }
                     // If "input_file" is set for the pipeline, then
                     // the standard input of the process running the
                     // first command in the pipeline should be redirected
                     // from the specified input file.
                     if(pline->input_file != NULL) {
-                        int fd;
-                        if((fd = open(pline->input_file, O_RDONLY)) < 0) {
-                            perror("open");
+                        int input_fd;
+                        if((input_fd = open(pline->input_file, O_RDONLY)) < 0) {
+                            perror("open failed");
+                            exit(EXIT_FAILURE);
+                        }
+                        if(dup2(input_fd, STDIN_FILENO) < 0) {
+                            perror("dup2 failed");
+                            if(close(input_fd) < 0) {
+                                perror("close failed");
+                                exit(EXIT_FAILURE);
+                            }
+                            exit(EXIT_FAILURE);
+                        }
+                        if(close(input_fd) < 0) {
+                            perror("close failed");
                             exit(EXIT_FAILURE);
                         }
                     }
-                }*/
+                }
+                if(i == num_of_children - 1) {
+                    if(num_of_children > 1) {
+                        if(dup2(pipe_fd[i - 1][0], STDIN_FILENO) < 0) {
+                            perror("dup2 failed");
+                            exit(EXIT_FAILURE);
+                        }
+                    }
+                    // If the "capture_output" flag is set for the pipeline, then the standard output
+                    // of the last process in the pipeline should be redirected to be the same as
+                    // the standard output of the pipeline leader, and this output should go via a
+                    // pipe to the main Mush process, where it should be read and saved in the data
+                    // store as the value of a variable, as described in the assignment handout.
+                    if(pline->capture_output) {
+
+                    }
+                    // If "capture_output" is not set for the pipeline, but "output_file" is non-NULL,
+                    // then the standard output of the last process in the pipeline should be redirected
+                    // to the specified output file.
+                    else if(pline->output_file != NULL) {
+                        int output_fd;
+                        if((output_fd = open(pline->output_file, (O_CREAT | O_WRONLY), (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH))) < 0) {
+                            perror("open failed");
+                            exit(EXIT_FAILURE);
+                        }
+                        if(dup2(output_fd, STDOUT_FILENO) < 0) {
+                            perror("dup2 failed");
+                            if(close(output_fd) < 0) {
+                                perror("close failed");
+                                exit(EXIT_FAILURE);
+                            }
+                            exit(EXIT_FAILURE);
+                        }
+                        if(close(output_fd) < 0) {
+                            perror("close failed");
+                            exit(EXIT_FAILURE);
+                        }
+                    }
+                }
+                for(int j = 0; j < num_of_children - 1; ++j) {
+                    if(close(pipe_fd[j][0]) < 0) {
+                        perror("close failed");
+                        exit(EXIT_FAILURE);
+                    }
+                    if(close(pipe_fd[j][1]) < 0) {
+                        perror("close failed");
+                        exit(EXIT_FAILURE);
+                    }
+                }
                 execvp(argv[0], argv);
-                perror("execvp");
+                perror("execvp failed");
+                abort();
+            }
+        }
+        for(int j = 0; j < num_of_children - 1; ++j) {
+            if(close(pipe_fd[j][0]) < 0) {
+                perror("close failed");
+                exit(EXIT_FAILURE);
+            }
+            if(close(pipe_fd[j][1]) < 0) {
+                perror("close failed");
                 exit(EXIT_FAILURE);
             }
         }
+        int status;
         for(int i = 0; i < num_of_children; ++i) {
             if(cpid[i] > 0) {
-                int status;
+                status = 0;
                 if(waitpid(cpid[i], &status, 0) < 0) {
-                    perror("waitpid");
-                    exit(EXIT_FAILURE);
+                    if(errno != ECHILD) {
+                        perror("waitpid failed");
+                        exit(EXIT_FAILURE);
+                    }
                 }
                 if(i == num_of_children - 1) {
-                    // If last child terminated normally,
-                    // then return with its exit status
                     if(WIFEXITED(status)) exit(WEXITSTATUS(status));
                 }
             }
         }
         // Otherwise, terminate leader via SIGABRT
-        kill(getpid(), SIGABRT);
-        perror("kill");
-        exit(EXIT_FAILURE);
+        abort();
     }
     else {
         // Main mush process
         if(signal(SIGCHLD, sigchld_handler) == SIG_ERR) {
-            perror("signal");
+            perror("signal failed");
             return -1;
         }
         JOBS_MODULE.jobs[length].pgid = pid;
@@ -301,7 +404,8 @@ int jobs_wait(int jobid) {
     if(length == 0) return -1;
     if(jobid < 0 || jobid >= length) return -1;
     sigset_t mask;
-    sigemptyset(&mask);
+    sigfillset(&mask);
+    sigdelset(&mask, SIGCHLD);
     sigsuspend(&mask);
     int child_status;
     if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, 0) < 0) {
@@ -323,15 +427,9 @@ int jobs_wait(int jobid) {
 int jobs_poll(int jobid) {
     if(length == 0) return -1;
     if(jobid < 0 || jobid >= length) return -1;
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigsuspend(&mask);
     int child_status;
     if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, WNOHANG) < 0) {
         if(errno == ECHILD) return leader_exit_status;
-    }
-    if(WIFEXITED(child_status)) {
-        return WEXITSTATUS(child_status);
     }
     return -1;
 }
@@ -385,10 +483,10 @@ int jobs_cancel(int jobid) {
     char status = (JOBS_MODULE.jobs[jobid].status == COMPLETED) || (JOBS_MODULE.jobs[jobid].status == ABORTED) || (JOBS_MODULE.jobs[jobid].status == CANCELED);
     if(status) return -1;
     if(killpg(JOBS_MODULE.jobs[jobid].pgid, SIGKILL) < 0) {
-        perror("kill");
+        perror("kill failed");
         return -1;
     }
-    JOBS_MODULE.jobs[jobid].status = CANCELED;
+    //JOBS_MODULE.jobs[jobid].status = CANCELED;
     return 0;
 }
 
@@ -417,6 +515,8 @@ char *jobs_get_output(int jobid) {
  */
 int jobs_pause(void) {
     // TO BE IMPLEMENTED
-    // Use sigprocmask and sigsuspend
-    abort();
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigsuspend(&mask);
+    return 0;
 }
