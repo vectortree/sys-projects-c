@@ -363,7 +363,7 @@ int jobs_run(PIPELINE *pline) {
                     // to the specified output file.
                     else if(pline->output_file != NULL) {
                         int output_fd;
-                        if((output_fd = open(pline->output_file, (O_CREAT | O_WRONLY), (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH))) < 0) {
+                        if((output_fd = open(pline->output_file, (O_WRONLY | O_CREAT | O_TRUNC), (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH))) < 0) {
                             perror("open failed");
                             exit(EXIT_FAILURE);
                         }
