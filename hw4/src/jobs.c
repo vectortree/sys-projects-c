@@ -54,6 +54,7 @@ typedef struct job {
     pid_t pgid;
     STATUS_VAL status;
     PIPELINE *pipeline;
+    int capture_output_pipe_fd[2];
 } JOB;
 
 static struct {
@@ -62,7 +63,9 @@ static struct {
 
 static int length;
 
-static volatile sig_atomic_t leader_exit_status;
+static volatile sig_atomic_t ready_to_read = 0;
+static volatile sig_atomic_t leader_reaped = 0;
+static volatile int leader_exit_status = 0;
 
 char **get_argv_array(ARG *args_list) {
     ARG *node = args_list;
@@ -83,6 +86,10 @@ char **get_argv_array(ARG *args_list) {
     return args_array;
 }
 
+void sigio_handler(int signal) {
+    ready_to_read = 1;
+}
+
 void sigchld_handler(int signal) {
     // Installer: main mush process
     // Triggered when a job (i.e., leader process) is terminated
@@ -101,16 +108,17 @@ void sigchld_handler(int signal) {
             }
             // Set job status to aborted or canceled accordingly
             else if(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL) {
-                leader_exit_status = SIGKILL + 128;
+                leader_exit_status = status;
                 JOBS_MODULE.jobs[i].status = CANCELED;
             }
             else if(WIFSIGNALED(status)) {
-                leader_exit_status = SIGABRT + 128;
+                leader_exit_status = status;
                 JOBS_MODULE.jobs[i].status = ABORTED;
             }
             break;
         }
     }
+    leader_reaped = 1;
     errno = olderrno;
 }
 
@@ -217,11 +225,13 @@ int jobs_run(PIPELINE *pline) {
     // TO BE IMPLEMENTED
     if(pline == NULL) return -1;
     if(length == MAX_JOBS) return -1;
-    int capture_output_pipe_fd[2];
-    if(pipe(capture_output_pipe_fd) < 0) {
+    if(pipe(JOBS_MODULE.jobs[length].capture_output_pipe_fd) < 0) {
         perror("pipe failed");
         return -1;
     }
+    fcntl(JOBS_MODULE.jobs[length].capture_output_pipe_fd[0], F_SETFL, O_NONBLOCK);
+    fcntl(JOBS_MODULE.jobs[length].capture_output_pipe_fd[0], F_SETFL, O_ASYNC);
+    fcntl(JOBS_MODULE.jobs[length].capture_output_pipe_fd[0], F_SETOWN, getpid());
     pid_t pid = fork();
     if(pid < 0) {
         perror("fork failed");
@@ -248,6 +258,10 @@ int jobs_run(PIPELINE *pline) {
             }
         }
         cmd_node = pline->commands;
+        int status = 0;
+        pid_t wpid;
+        int exit_status = 0;
+        char exited = 0;
         // Spawn child processes for each command and execute them
         for(int i = 0; cmd_node != NULL; cmd_node = cmd_node->next, ++i) {
             cpid[i] = fork();
@@ -313,7 +327,7 @@ int jobs_run(PIPELINE *pline) {
                     // pipe to the main Mush process, where it should be read and saved in the data
                     // store as the value of a variable, as described in the assignment handout.
                     if(pline->capture_output) {
-                        if(dup2(capture_output_pipe_fd[1], STDOUT_FILENO) < 0) {
+                        if(dup2(JOBS_MODULE.jobs[length].capture_output_pipe_fd[1], STDOUT_FILENO) < 0) {
                             perror("dup2 failed");
                             exit(EXIT_FAILURE);
                         }
@@ -351,11 +365,11 @@ int jobs_run(PIPELINE *pline) {
                         exit(EXIT_FAILURE);
                     }
                 }
-                if(close(capture_output_pipe_fd[0]) < 0) {
+                if(close(JOBS_MODULE.jobs[length].capture_output_pipe_fd[0]) < 0) {
                     perror("close failed");
                     exit(EXIT_FAILURE);
                 }
-                if(close(capture_output_pipe_fd[1]) < 0) {
+                if(close(JOBS_MODULE.jobs[length].capture_output_pipe_fd[1]) < 0) {
                     perror("close failed");
                     exit(EXIT_FAILURE);
                 }
@@ -374,29 +388,23 @@ int jobs_run(PIPELINE *pline) {
                 exit(EXIT_FAILURE);
             }
         }
-        if(close(capture_output_pipe_fd[0]) < 0) {
+        if(close(JOBS_MODULE.jobs[length].capture_output_pipe_fd[0]) < 0) {
             perror("close failed");
             exit(EXIT_FAILURE);
         }
-        if(close(capture_output_pipe_fd[1]) < 0) {
+        if(close(JOBS_MODULE.jobs[length].capture_output_pipe_fd[1]) < 0) {
             perror("close failed");
             exit(EXIT_FAILURE);
         }
-        int status;
-        for(int i = 0; i < num_of_children; ++i) {
-            if(cpid[i] > 0) {
-                status = 0;
-                if(waitpid(cpid[i], &status, 0) < 0) {
-                    if(errno != ECHILD) {
-                        perror("waitpid failed");
-                        exit(EXIT_FAILURE);
-                    }
-                }
-                if(i == num_of_children - 1) {
-                    if(WIFEXITED(status)) exit(WEXITSTATUS(status));
+        while((wpid = wait(&status)) > 0) {
+            if(wpid == cpid[num_of_children - 1]) {
+                if(WIFEXITED(status)) {
+                    exited = 1;
+                    exit_status = WEXITSTATUS(status);
                 }
             }
         }
+        if(exited) exit(exit_status);
         // Otherwise, terminate leader via SIGABRT
         abort();
     }
@@ -406,15 +414,11 @@ int jobs_run(PIPELINE *pline) {
             perror("signal failed");
             return -1;
         }
-        if(dup2(capture_output_pipe_fd[0], STDIN_FILENO) < 0) {
-            perror("dup2 failed");
-            exit(EXIT_FAILURE);
+        if(signal(SIGIO, sigio_handler) == SIG_ERR) {
+            perror("signal failed");
+            return -1;
         }
-        if(close(capture_output_pipe_fd[0]) < 0) {
-            perror("close failed");
-            exit(EXIT_FAILURE);
-        }
-        if(close(capture_output_pipe_fd[1]) < 0) {
+        if(close(JOBS_MODULE.jobs[length].capture_output_pipe_fd[1]) < 0) {
             perror("close failed");
             exit(EXIT_FAILURE);
         }
@@ -437,14 +441,33 @@ int jobs_run(PIPELINE *pline) {
  */
 int jobs_wait(int jobid) {
     // TO BE IMPLEMENTED
-    if(length == 0) return -1;
-    if(jobid < 0 || jobid >= length) return -1;
+    if(length == 0 || jobid < 0 || jobid >= length) return -1;
     sigset_t mask;
     sigemptyset(&mask);
     sigsuspend(&mask);
     int child_status;
-    if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, 0) < 0) {
-        if(errno == ECHILD) return leader_exit_status;
+    if(leader_reaped) {
+        if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, 0) < 0) {
+            if(errno == ECHILD) return leader_exit_status;
+        }
+    }
+    else {
+        if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, 0) > 0) {
+            if(WIFEXITED(child_status)) {
+                leader_exit_status = WEXITSTATUS(child_status);
+                JOBS_MODULE.jobs[jobid].status = COMPLETED;
+            }
+            // Set job status to aborted or canceled accordingly
+            else if(WIFSIGNALED(child_status) && WTERMSIG(child_status) == SIGKILL) {
+                leader_exit_status = child_status;
+                JOBS_MODULE.jobs[jobid].status = CANCELED;
+            }
+            else if(WIFSIGNALED(child_status)) {
+                leader_exit_status = child_status;
+                JOBS_MODULE.jobs[jobid].status = ABORTED;
+            }
+            return leader_exit_status;
+        }
     }
     return -1;
 }
@@ -460,8 +483,7 @@ int jobs_wait(int jobid) {
  * has terminated, or -1 if the job has not yet terminated or if any other error occurs.
  */
 int jobs_poll(int jobid) {
-    if(length == 0) return -1;
-    if(jobid < 0 || jobid >= length) return -1;
+    if(length == 0 || jobid < 0 || jobid >= length) return -1;
     int child_status;
     if(waitpid(JOBS_MODULE.jobs[jobid].pgid, &child_status, WNOHANG) < 0) {
         if(errno == ECHILD) return leader_exit_status;
@@ -483,8 +505,7 @@ int jobs_poll(int jobid) {
  */
 int jobs_expunge(int jobid) {
     // TO BE IMPLEMENTED
-    if(length == 0) return -1;
-    if(jobid < 0 || jobid >= length) return -1;
+    if(length == 0 || jobid < 0 || jobid >= length) return -1;
     char status = (JOBS_MODULE.jobs[jobid].status == COMPLETED) || (JOBS_MODULE.jobs[jobid].status == ABORTED) || (JOBS_MODULE.jobs[jobid].status == CANCELED);
     if(!status) return -1;
     if(JOBS_MODULE.jobs[jobid].pipeline != NULL)
@@ -513,11 +534,9 @@ int jobs_expunge(int jobid) {
  */
 int jobs_cancel(int jobid) {
     // TO BE IMPLEMENTED
-    if(length == 0) return -1;
-    if(jobid < 0 || jobid >= length) return -1;
+    if(length == 0 || jobid < 0 || jobid >= length) return -1;
     char status = (JOBS_MODULE.jobs[jobid].status == COMPLETED) || (JOBS_MODULE.jobs[jobid].status == ABORTED) || (JOBS_MODULE.jobs[jobid].status == CANCELED);
     if(status) return -1;
-    JOBS_MODULE.jobs[jobid].status = ABORTED;
     if(killpg(JOBS_MODULE.jobs[jobid].pgid, SIGKILL) < 0) {
         perror("kill failed");
         return -1;
@@ -537,11 +556,42 @@ int jobs_cancel(int jobid) {
  */
 char *jobs_get_output(int jobid) {
     // TO BE IMPLEMENTED
-    if(length == 0) return NULL;
-    if(jobid < 0 || jobid >= length) return NULL;
+    if(length == 0 || jobid < 0 || jobid >= length) {
+        if(close(JOBS_MODULE.jobs[jobid].capture_output_pipe_fd[0]) < 0) {
+            perror("close failed");
+            exit(EXIT_FAILURE);
+        }
+        return NULL;
+    }
     char status = (JOBS_MODULE.jobs[jobid].status == COMPLETED) || (JOBS_MODULE.jobs[jobid].status == ABORTED) || (JOBS_MODULE.jobs[jobid].status == CANCELED);
-    if(!status || !JOBS_MODULE.jobs[jobid].pipeline->capture_output) return NULL;
-
+    if(!status || !JOBS_MODULE.jobs[jobid].pipeline->capture_output) {
+        if(close(JOBS_MODULE.jobs[jobid].capture_output_pipe_fd[0]) < 0) {
+            perror("close failed");
+            exit(EXIT_FAILURE);
+        }
+        return NULL;
+    }
+    if(ready_to_read) {
+        char *memstream_buf = NULL;
+        size_t size = 0;
+        FILE *memstream = open_memstream(&memstream_buf, &size);
+        if(memstream == NULL) return NULL;
+        char read_buf[1000];
+        while(read(JOBS_MODULE.jobs[jobid].capture_output_pipe_fd[0], read_buf, 1000) > 0) {
+            fprintf(memstream, "%s", read_buf);
+            fflush(memstream);
+        }
+        fclose(memstream);
+        if(close(JOBS_MODULE.jobs[jobid].capture_output_pipe_fd[0]) < 0) {
+            perror("close failed");
+            exit(EXIT_FAILURE);
+        }
+        return memstream_buf;
+    }
+    if(close(JOBS_MODULE.jobs[jobid].capture_output_pipe_fd[0]) < 0) {
+        perror("close failed");
+        exit(EXIT_FAILURE);
+    }
     return NULL;
 }
 
