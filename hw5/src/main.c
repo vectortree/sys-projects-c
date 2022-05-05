@@ -32,7 +32,7 @@ int main(int argc, char* argv[]){
     }
     if(!flag) {
         fprintf(stderr, "Usage: %s %s\n", argv[0], "-p <port>");
-        exit(EXIT_FAILURE);
+        exit(EXIT_SUCCESS);
     }
     // Perform required initialization of the PBX module.
     debug("Initializing PBX...\n");
@@ -58,10 +58,13 @@ int main(int argc, char* argv[]){
     pthread_t tid;
 
     listenfd = Open_listenfd(port);
+    if(listenfd < 0) terminate(EXIT_FAILURE);
     while(1) {
         clientlen = sizeof(struct sockaddr_storage);
         connfdp = Malloc(sizeof(int));
+        if(connfdp == NULL) terminate(EXIT_FAILURE);
         *connfdp = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        if(*connfdp < 0) terminate(EXIT_FAILURE);
         Pthread_create(&tid, NULL, thread, connfdp);
     }
 
@@ -75,9 +78,9 @@ int main(int argc, char* argv[]){
  * Function called to cleanly shut down the server.
  */
 static void terminate(int status) {
-    debug("Shutting down PBX...");
+    debug("Shutting down PBX...\n");
     pbx_shutdown(pbx);
-    debug("PBX server terminating");
+    debug("PBX server terminating\n");
     exit(status);
 }
 
@@ -90,8 +93,7 @@ static void sighup_handler(int sig) {
 }
 
 /*
- * For each connection, a thread should be started to
- * run function pbx_client_service().
+ * For each connection, a client service thread is started.
  */
 static void *thread(void *vargp) {
     return pbx_client_service(vargp);
