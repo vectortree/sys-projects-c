@@ -50,21 +50,22 @@ void *pbx_client_service(void *arg) {
             if(end_of_line != NULL) break;
         }
         if(read_buf_size == 0) break;
-        char *first_token = strtok(msg, " \t");
+        strtok(msg, " \t");
         if(strcmp(msg, tu_command_names[TU_PICKUP_CMD]) == 0) {
             tu_pickup(tu);
         }
         else if(strcmp(msg, tu_command_names[TU_HANGUP_CMD]) == 0) {
             tu_hangup(tu);
         }
-        else if(strcmp(first_token, tu_command_names[TU_DIAL_CMD]) == 0) {
+        else if(strcmp(msg, tu_command_names[TU_DIAL_CMD]) == 0) {
             pbx_dial(pbx, tu, atoi(strtok(NULL, " \t")));
         }
-        else if(strcmp(first_token, tu_command_names[TU_CHAT_CMD]) == 0) {
-            tu_chat(tu, strtok(NULL, " \t"));
+        else if(strcmp(msg, tu_command_names[TU_CHAT_CMD]) == 0) {
+            tu_chat(tu, strtok(NULL, ""));
         }
         Free(msg);
     }
+    debug("Unregistering client service thread (ext: %d)...\n", connfd);
     pbx_unregister(pbx, tu);
     Close(connfd);
     return NULL;

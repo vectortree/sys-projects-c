@@ -45,9 +45,12 @@ int main(int argc, char* argv[]){
     // shutdown of the server.
 
     // Install SIGHUP signal handler.
-    struct sigaction sa;
-    sa.sa_handler = sighup_handler;
-    sigaction(SIGHUP, &sa, NULL);
+    // Ignore SIGPIPE.
+    struct sigaction sa_sighup, sa_sigpipe;
+    sa_sighup.sa_handler = sighup_handler;
+    sa_sigpipe.sa_handler = SIG_IGN;
+    sigaction(SIGHUP, &sa_sighup, NULL);
+    sigaction(SIGPIPE, &sa_sigpipe, NULL);
 
     // NOTE: We are allowed to use code snippets from the textbook and/or slides.
     // This is for setting up the server socket and entering a loop
