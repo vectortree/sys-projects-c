@@ -50,19 +50,38 @@ void *pbx_client_service(void *arg) {
             if(end_of_line != NULL) break;
         }
         if(read_buf_size == 0) break;
-        strtok(msg, " \t");
-        if(strcmp(msg, tu_command_names[TU_PICKUP_CMD]) == 0) {
+        msg = Realloc(msg, msg_size + 1);
+        msg[msg_size] = '\0';
+        char *first_token = strtok(msg, " \t");
+        if(first_token == NULL) continue;
+        if(strcmp(first_token, tu_command_names[TU_PICKUP_CMD]) == 0) {
             tu_pickup(tu);
         }
-        else if(strcmp(msg, tu_command_names[TU_HANGUP_CMD]) == 0) {
+        else if(strcmp(first_token, tu_command_names[TU_HANGUP_CMD]) == 0) {
             tu_hangup(tu);
         }
-        else if(strcmp(msg, tu_command_names[TU_DIAL_CMD]) == 0) {
-            pbx_dial(pbx, tu, atoi(strtok(NULL, " \t")));
+        else if(strcmp(first_token, tu_command_names[TU_DIAL_CMD]) == 0) {
+            char *ext = strtok(NULL, " \t");
+            if(ext != NULL) pbx_dial(pbx, tu, atoi(ext));
         }
-        else if(strcmp(msg, tu_command_names[TU_CHAT_CMD]) == 0) {
-            tu_chat(tu, strtok(NULL, ""));
+        else if(strcmp(first_token, tu_command_names[TU_CHAT_CMD]) == 0) {
+            char *chat_msg = strtok(NULL, "");
+            if(chat_msg == NULL) tu_chat(tu, "");
+            else {
+                int i = 0;
+                char all_whitespace = 1;
+                while(i < strlen(chat_msg)) {
+                    if(!isspace(chat_msg[i])) {
+                        all_whitespace = 0;
+                        break;
+                    }
+                    ++i;
+                }
+                if(all_whitespace) tu_chat(tu, "");
+                else tu_chat(tu, chat_msg + i);
+            }
         }
+        debug("%s\n", msg);
         Free(msg);
     }
     debug("Unregistering client service thread (ext: %d)...\n", connfd);

@@ -2,9 +2,19 @@
  * TU: simulates a "telephone unit", which interfaces a client with the PBX.
  */
 #include <stdlib.h>
+#include <pthread.h>
 
 #include "pbx.h"
 #include "debug.h"
+#include "csapp.h"
+
+struct tu {
+    int fd;
+    TU *peer;
+    TU_STATE state;
+    sem_t mutex;
+    int ref_count;
+};
 
 /*
  * Initialize a TU
@@ -13,12 +23,17 @@
  * @return  The TU, newly initialized and in the TU_ON_HOOK state, if initialization
  * was successful, otherwise NULL.
  */
-#if 0
 TU *tu_init(int fd) {
     // TO BE IMPLEMENTED
-    abort();
+    TU *tu = Malloc(sizeof(TU));
+    if(tu == NULL) return NULL;
+    tu->fd = fd;
+    tu->peer = NULL;
+    tu->state = TU_ON_HOOK;
+    tu->ref_count = 0;
+    Sem_init(&tu->mutex, 0, 1);
+    return tu;
 }
-#endif
 
 /*
  * Increment the reference count on a TU.
@@ -27,12 +42,14 @@ TU *tu_init(int fd) {
  * @param reason  A string describing the reason why the count is being incremented
  * (for debugging purposes).
  */
-#if 0
 void tu_ref(TU *tu, char *reason) {
     // TO BE IMPLEMENTED
-    abort();
+    if(tu == NULL) return;
+    P(&tu->mutex);
+    ++tu->ref_count;
+    if(reason != NULL) debug("tu_ref: %s\n", reason);
+    V(&tu->mutex);
 }
-#endif
 
 /*
  * Decrement the reference count on a TU, freeing it if the count becomes 0.
@@ -41,12 +58,15 @@ void tu_ref(TU *tu, char *reason) {
  * @param reason  A string describing the reason why the count is being decremented
  * (for debugging purposes).
  */
-#if 0
 void tu_unref(TU *tu, char *reason) {
     // TO BE IMPLEMENTED
-    abort();
+    if(tu == NULL) return;
+    P(&tu->mutex);
+    --tu->ref_count;
+    if(tu->ref_count == 0) Free(tu);
+    if(reason != NULL) debug("tu_unref: %s\n", reason);
+    V(&tu->mutex);
 }
-#endif
 
 /*
  * Get the file descriptor for the network connection underlying a TU.
@@ -57,12 +77,14 @@ void tu_unref(TU *tu, char *reason) {
  * @param tu
  * @return the underlying file descriptor, if any, otherwise -1.
  */
-#if 0
 int tu_fileno(TU *tu) {
     // TO BE IMPLEMENTED
-    abort();
+    if(tu == NULL) return -1;
+    P(&tu->mutex);
+    int fileno = tu->fd;
+    V(&tu->mutex);
+    return fileno;
 }
-#endif
 
 /*
  * Get the extension number for a TU.
@@ -74,12 +96,10 @@ int tu_fileno(TU *tu) {
  * @param tu
  * @return the extension number, if any, otherwise -1.
  */
-#if 0
 int tu_extension(TU *tu) {
     // TO BE IMPLEMENTED
-    abort();
+    return tu_fileno(tu);
 }
-#endif
 
 /*
  * Set the extension number for a TU.
@@ -88,12 +108,14 @@ int tu_extension(TU *tu) {
  *
  * @param tu  The TU whose extension is being set.
  */
-#if 0
 int tu_set_extension(TU *tu, int ext) {
     // TO BE IMPLEMENTED
-    abort();
+    if(tu == NULL || ext < 0) return -1;
+    P(&tu->mutex);
+    tu->fd = ext;
+    V(&tu->mutex);
+    return 0;
 }
-#endif
 
 /*
  * Initiate a call from a specified originating TU to a specified target TU.
@@ -125,12 +147,84 @@ int tu_set_extension(TU *tu, int ext) {
  * @return 0 if successful, -1 if any error occurs that results in the originating
  * TU transitioning to the TU_ERROR state. 
  */
-#if 0
 int tu_dial(TU *tu, TU *target) {
     // TO BE IMPLEMENTED
-    abort();
+    if(tu == NULL) {
+        debug("tu_dial");
+        return -1;
+    }
+    P(&tu->mutex);
+    char target_state_changed = 0;
+    if(tu->state == TU_DIAL_TONE) {
+        if(target == NULL && tu->state == TU_DIAL_TONE) {
+            tu->state = TU_ERROR;
+        }
+        else if(target == NULL) {
+            debug("tu_dial");
+            V(&tu->mutex);
+            return -1;
+        }
+        if(tu != target) P(&target->mutex);
+        if(tu == target || target->peer != NULL || target->state != TU_ON_HOOK) {
+            if(tu == target) debug("tu == target");
+            if(target->peer != NULL) debug("target->peer != NULL");
+            if(target->state != TU_ON_HOOK) debug("target->state != TU_ON_HOOK");
+            tu->state = TU_BUSY_SIGNAL;
+        }
+        else {
+            target_state_changed = 1;
+            V(&tu->mutex);
+            tu_ref(tu, "tu_dial");
+            P(&tu->mutex);
+            V(&target->mutex);
+            tu_ref(target, "tu_dial");
+            P(&target->mutex);
+            target->state = TU_RINGING;
+            tu->state = TU_RING_BACK;
+            tu->peer = target;
+            target->peer = tu;
+            debug("tu_dial: Connecting ext %d to %d\n", tu->fd, target->fd);
+        }
+        V(&target->mutex);
+    }
+    char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
+    strcpy(tu_buf, tu_state_names[tu->state]);
+    if(tu->state == TU_ON_HOOK || tu->state == TU_CONNECTED) {
+        char num[12];
+        if(tu->state == TU_ON_HOOK) sprintf(num, " %d", tu->fd);
+        else sprintf(num, " %d", tu->peer->fd);
+        tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
+        strcat(tu_buf, num);
+    }
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 2);
+    strcat(tu_buf, "\n");
+    Write(tu->fd, tu_buf, strlen(tu_buf));
+
+    if(target_state_changed) {
+        P(&target->mutex);
+        debug("tu_dial: Notifying target (ext %d)...\n", target->fd);
+        char *target_buf = Malloc(strlen(tu_state_names[target->state]) + 1);
+        strcpy(target_buf, tu_state_names[target->state]);
+        if(target->state == TU_ON_HOOK || target->state == TU_CONNECTED) {
+            char num[12];
+            if(target->state == TU_ON_HOOK) sprintf(num, " %d", target->fd);
+            else sprintf(num, " %d", target->peer->fd);
+            target_buf = Realloc(target_buf, strlen(target_buf) + strlen(num) + 1);
+            strcat(target_buf, num);
+        }
+        target_buf = Realloc(target_buf, strlen(target_buf) + 2);
+        strcat(target_buf, "\n");
+        Write(target->fd, target_buf, strlen(target_buf));
+        V(&target->mutex);
+    }
+    if(tu->state == TU_ERROR) {
+        V(&tu->mutex);
+        debug("tu_dial");
+        return -1;
+    }
+    V(&tu->mutex);
+    return 0;
 }
-#endif
 
 /*
  * Take a TU receiver off-hook (i.e. pick up the handset).
@@ -149,12 +243,63 @@ int tu_dial(TU *tu, TU *target) {
  * @return 0 if successful, -1 if any error occurs that results in the originating
  * TU transitioning to the TU_ERROR state. 
  */
-#if 0
 int tu_pickup(TU *tu) {
     // TO BE IMPLEMENTED
-    abort();
+    if(tu == NULL) {
+        debug("tu_pickup");
+        return -1;
+    }
+    P(&tu->mutex);
+    char peer_state_changed = 0;
+    if(tu->state == TU_ON_HOOK) {
+        tu->state = TU_DIAL_TONE;
+    }
+    else if(tu->state == TU_RINGING) {
+        if(tu->peer == NULL) {
+            debug("tu_pickup");
+            return -1;
+        }
+        P(&tu->peer->mutex);
+        tu->state = TU_CONNECTED;
+        peer_state_changed = 1;
+        tu->peer->state = TU_CONNECTED;
+        V(&tu->peer->mutex);
+    }
+    char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
+    strcpy(tu_buf, tu_state_names[tu->state]);
+    if(tu->state == TU_ON_HOOK || tu->state == TU_CONNECTED) {
+        char num[12];
+        if(tu->state == TU_ON_HOOK) sprintf(num, " %d", tu->fd);
+        else sprintf(num, " %d", tu->peer->fd);
+        tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
+        strcat(tu_buf, num);
+    }
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 2);
+    strcat(tu_buf, "\n");
+    Write(tu->fd, tu_buf, strlen(tu_buf));
+    if(peer_state_changed) {
+        P(&tu->peer->mutex);
+        char *peer_buf = Malloc(strlen(tu_state_names[tu->peer->state]) + 1);
+        strcpy(peer_buf, tu_state_names[tu->peer->state]);
+        if(tu->peer->state == TU_ON_HOOK || tu->peer->state == TU_CONNECTED) {
+            char num[12];
+            if(tu->state == TU_ON_HOOK) sprintf(num, " %d", tu->peer->fd);
+            else sprintf(num, " %d", tu->fd);
+            peer_buf = Realloc(peer_buf, strlen(peer_buf) + strlen(num) + 1);
+            strcat(peer_buf, num);
+        }
+        peer_buf = Realloc(peer_buf, strlen(peer_buf) + 2);
+        strcat(peer_buf, "\n");
+        Write(tu->peer->fd, peer_buf, strlen(peer_buf));
+        V(&tu->peer->mutex);
+    }
+    if(tu->state == TU_ERROR) {
+        V(&tu->mutex);
+        return -1;
+    }
+    V(&tu->mutex);
+    return 0;
 }
-#endif
 
 /*
  * Hang up a TU (i.e. replace the handset on the switchhook).
@@ -177,12 +322,86 @@ int tu_pickup(TU *tu) {
  * @return 0 if successful, -1 if any error occurs that results in the originating
  * TU transitioning to the TU_ERROR state. 
  */
-#if 0
 int tu_hangup(TU *tu) {
     // TO BE IMPLEMENTED
-    abort();
+    if(tu == NULL) {
+        debug("tu_hangup");
+        return -1;
+    }
+    P(&tu->mutex);
+    char peer_state_changed = 0;
+    char set_to_null = 0;
+    if(tu->state == TU_CONNECTED || tu->state == TU_RINGING) {
+        if(tu->peer == NULL) {
+            debug("tu_hangup");
+            return -1;
+        }
+        tu->state = TU_ON_HOOK;
+        peer_state_changed = 1;
+        P(&tu->peer->mutex);
+        tu->peer->state = TU_DIAL_TONE;
+        V(&tu->peer->mutex);
+        set_to_null = 1;
+    }
+    else if(tu->state == TU_RING_BACK) {
+        if(tu->peer == NULL) {
+            debug("tu_hangup");
+            return -1;
+        }
+        P(&tu->peer->mutex);
+        tu->state = TU_ON_HOOK;
+        peer_state_changed = 1;
+        tu->peer->state = TU_ON_HOOK;
+        V(&tu->peer->mutex);
+    }
+    else if(tu->state == TU_DIAL_TONE || tu->state == TU_BUSY_SIGNAL || tu->state == TU_ERROR) {
+        tu->state = TU_ON_HOOK;
+    }
+    char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
+    strcpy(tu_buf, tu_state_names[tu->state]);
+    if(tu->state == TU_ON_HOOK || tu->state == TU_CONNECTED) {
+        char num[12];
+        if(tu->state == TU_ON_HOOK) sprintf(num, " %d", tu->fd);
+        else sprintf(num, " %d", tu->peer->fd);
+        tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
+        strcat(tu_buf, num);
+    }
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 2);
+    strcat(tu_buf, "\n");
+    Write(tu->fd, tu_buf, strlen(tu_buf));
+    if(peer_state_changed) {
+        if(tu->peer == NULL) {
+            debug("tu_hangup");
+            return -1;
+        }
+        P(&tu->peer->mutex);
+        char *peer_buf = Malloc(strlen(tu_state_names[tu->peer->state]) + 1);
+        strcpy(peer_buf, tu_state_names[tu->peer->state]);
+        if(tu->peer->state == TU_ON_HOOK || tu->peer->state == TU_CONNECTED) {
+            char num[12];
+            if(tu->peer->state == TU_ON_HOOK) sprintf(num, " %d", tu->peer->fd);
+            else sprintf(num, " %d", tu->fd);
+            peer_buf = Realloc(peer_buf, strlen(peer_buf) + strlen(num) + 1);
+            strcat(peer_buf, num);
+        }
+        peer_buf = Realloc(peer_buf, strlen(peer_buf) + 2);
+        strcat(peer_buf, "\n");
+        Write(tu->peer->fd, peer_buf, strlen(peer_buf));
+        V(&tu->peer->mutex);
+    }
+    if(tu->state == TU_ERROR) {
+        V(&tu->mutex);
+        return -1;
+    }
+    if(set_to_null) {
+        P(&tu->peer->mutex);
+        tu->peer->peer = NULL;
+        V(&tu->peer->mutex);
+        tu->peer = NULL;
+    }
+    V(&tu->mutex);
+    return 0;
 }
-#endif
 
 /*
  * "Chat" over a connection.
@@ -197,9 +416,43 @@ int tu_hangup(TU *tu) {
  * @return 0  If the chat was successfully sent, -1 if there is no call in progress
  * or some other error occurs.
  */
-#if 0
 int tu_chat(TU *tu, char *msg) {
     // TO BE IMPLEMENTED
-    abort();
+    if(tu == NULL) {
+        debug("tu_chat");
+        return -1;
+    }
+    if(tu->peer == NULL) {
+        debug("tu_chat");
+        return -1;
+    }
+    P(&tu->mutex);
+    P(&tu->peer->mutex);
+    if(tu->state != TU_CONNECTED) {
+        V(&tu->mutex);
+        V(&tu->peer->mutex);
+        return -1;
+    }
+    char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
+    strcpy(tu_buf, tu_state_names[tu->state]);
+    if(tu->state == TU_ON_HOOK || tu->state == TU_CONNECTED) {
+        char num[12];
+        if(tu->state == TU_ON_HOOK) sprintf(num, " %d", tu->fd);
+        else sprintf(num, " %d", tu->peer->fd);
+        tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
+        strcat(tu_buf, num);
+    }
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 2);
+    strcat(tu_buf, "\n");
+    Write(tu->fd, tu_buf, strlen(tu_buf));
+    char *msg_buf = Malloc(strlen("CHAT ") + 1);
+    strcpy(msg_buf, "CHAT ");
+    msg_buf = Realloc(msg_buf, strlen(msg_buf) + strlen(msg) + 1);
+    strcat(msg_buf, msg);
+    msg_buf = Realloc(msg_buf, strlen(msg_buf) + 2);
+    strcat(msg_buf, "\n");
+    Write(tu->peer->fd, msg_buf, strlen(msg_buf));
+    V(&tu->mutex);
+    V(&tu->peer->mutex);
+    return 0;
 }
-#endif

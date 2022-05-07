@@ -16,8 +16,9 @@ struct pbx_client {
 };
 
 struct pbx {
-    //sem_t sem;
-    pthread_mutex_t mutex;
+    sem_t w;
+    sem_t lock;
+    sem_t mutex;
     int size;
     struct pbx_client *registry;
 };
@@ -31,8 +32,9 @@ PBX *pbx_init() {
     // TO BE IMPLEMENTED
     PBX *pbx = Malloc(sizeof(PBX));
     if(pbx == NULL) return NULL;
-    pthread_mutex_init(&pbx->mutex, NULL);
-    //Sem_init(&pbx->sem, 0, 1);
+    Sem_init(&pbx->mutex, 0, 1);
+    Sem_init(&pbx->w, 0, 1);
+    Sem_init(&pbx->lock, 0, 1);
     pbx->size = 0;
     pbx->registry = Malloc(sizeof(struct pbx_client));
     if(pbx->registry == NULL) return NULL;
@@ -54,24 +56,28 @@ PBX *pbx_init() {
 void pbx_shutdown(PBX *pbx) {
     // TO BE IMPLEMENTED
     if(pbx == NULL || pbx->registry == NULL) return;
-    pthread_mutex_lock(&pbx->mutex);
+    P(&pbx->lock);
     struct pbx_client *node = pbx->registry->next;
     while(node != pbx->registry) {
         shutdown(node->ext, SHUT_RDWR);
         node = node->next;
     }
-    //while(pbx->size > 0);
+    V(&pbx->lock);
     node = pbx->registry->next;
     while(node != pbx->registry) {
         struct pbx_client *temp = node;
         node->prev->next = node->next;
         node->next->prev = node->prev;
+        tu_unref(node->tu, "pbx_shutdown");
         node = node->next;
         Free(temp);
     }
+    V(&pbx->mutex);
+    sem_destroy(&pbx->lock);
+    sem_destroy(&pbx->mutex);
+    sem_destroy(&pbx->w);
     Free(pbx->registry);
     Free(pbx);
-    pthread_mutex_unlock(&pbx->mutex);
 }
 
 /*
@@ -91,22 +97,30 @@ void pbx_shutdown(PBX *pbx) {
 int pbx_register(PBX *pbx, TU *tu, int ext) {
     // TO BE IMPLEMENTED
     if(pbx == NULL || tu == NULL || ext < 0) return -1;
-    if(pbx != NULL && pbx->size >= PBX_MAX_EXTENSIONS) return -1;
-    pthread_mutex_lock(&pbx->mutex);
+    P(&pbx->mutex);
+    if(pbx->size >= PBX_MAX_EXTENSIONS) {
+        V(&pbx->mutex);
+        return -1;
+    }
     struct pbx_client *pbx_client = Malloc(sizeof(struct pbx_client));
-    if(pbx_client == NULL) return -1;
+    if(pbx_client == NULL) {
+        V(&pbx->mutex);
+        return -1;
+    }
     tu_ref(tu, "pbx_register");
-    if(tu_set_extension(tu, ext) < 0) return -1;
+    if(tu_set_extension(tu, ext) < 0) {
+        V(&pbx->mutex);
+        return -1;
+    }
     pbx_client->tu = tu;
     pbx_client->ext = ext;
     pbx_client->next = pbx->registry;
     pbx_client->prev = pbx->registry->prev;
     pbx->registry->prev->next = pbx_client;
     pbx->registry->prev = pbx_client;
-    //P(&pbx->sem);
     ++pbx->size;
-    //V(&pbx->sem);
-    pthread_mutex_unlock(&pbx->mutex);
+    if(pbx->size == 1) P(&pbx->w);
+    V(&pbx->mutex);
     return 0;
 }
 
@@ -125,8 +139,11 @@ int pbx_register(PBX *pbx, TU *tu, int ext) {
 int pbx_unregister(PBX *pbx, TU *tu) {
     // TO BE IMPLEMENTED
     if(pbx == NULL || tu == NULL) return -1;
-    if(pbx != NULL && pbx->size <= 0) return -1;
-    pthread_mutex_lock(&pbx->mutex);
+    P(&pbx->mutex);
+    if(pbx != NULL && pbx->size <= 0) {
+        V(&pbx->mutex);
+        return -1;
+    }
     struct pbx_client *node = pbx->registry->next;
     char flag = 0;
     while(node != pbx->registry) {
@@ -139,15 +156,17 @@ int pbx_unregister(PBX *pbx, TU *tu) {
         node = node->next;
     }
     if(!flag) {
-        pthread_mutex_unlock(&pbx->mutex);
+        V(&pbx->mutex);
         return -1;
     }
-    if(tu_hangup(tu) < 0) return -1;
+    if(tu_hangup(tu) < 0) {
+        V(&pbx->mutex);
+        return -1;
+    }
     tu_unref(tu, "pbx_unregister");
-    //P(&pbx->sem);
     --pbx->size;
-    //V(&pbx->sem);
-    pthread_mutex_unlock(&pbx->mutex);
+    if(pbx->size == 0) V(&pbx->w);
+    V(&pbx->mutex);
     return 0;
 }
 
@@ -162,7 +181,7 @@ int pbx_unregister(PBX *pbx, TU *tu) {
 int pbx_dial(PBX *pbx, TU *tu, int ext) {
     // TO BE IMPLEMENTED
     if(pbx == NULL || tu == NULL || ext < 0) return -1;
-    pthread_mutex_lock(&pbx->mutex);
+    P(&pbx->mutex);
     struct pbx_client *node = pbx->registry->next;
     char flag = 0;
     while(node != pbx->registry) {
@@ -174,11 +193,11 @@ int pbx_dial(PBX *pbx, TU *tu, int ext) {
         node = node->next;
     }
     if(!flag) {
-        if(tu_dial(tu, NULL) < 0) {
-            pthread_mutex_unlock(&pbx->mutex);
-            return -1;
-        }
+        debug("pbx_dial: ext %d not found", ext);
+        tu_dial(tu, NULL);
+        V(&pbx->mutex);
+        return -1;
     }
-    pthread_mutex_unlock(&pbx->mutex);
+    V(&pbx->mutex);
     return 0;
 }

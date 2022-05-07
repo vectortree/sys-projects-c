@@ -10,6 +10,8 @@ static void terminate(int status);
 static void sighup_handler(int sig);
 static void *thread(void *vargp);
 
+static volatile sig_atomic_t sighup_flag = 0;
+
 /*
  * "PBX" telephone exchange simulation.
  *
@@ -46,7 +48,7 @@ int main(int argc, char* argv[]){
 
     // Install SIGHUP signal handler.
     // Ignore SIGPIPE.
-    struct sigaction sa_sighup, sa_sigpipe;
+    struct sigaction sa_sighup = {0}, sa_sigpipe = {0};
     sa_sighup.sa_handler = sighup_handler;
     sa_sigpipe.sa_handler = SIG_IGN;
     sigaction(SIGHUP, &sa_sighup, NULL);
@@ -62,19 +64,17 @@ int main(int argc, char* argv[]){
 
     listenfd = Open_listenfd(port);
     if(listenfd < 0) terminate(EXIT_FAILURE);
-    while(1) {
+    while(!sighup_flag) {
         clientlen = sizeof(struct sockaddr_storage);
         connfdp = Malloc(sizeof(int));
         if(connfdp == NULL) terminate(EXIT_FAILURE);
-        *connfdp = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-        if(*connfdp < 0) terminate(EXIT_FAILURE);
+        *connfdp = accept(listenfd, (SA *)&clientaddr, &clientlen);
+        if(*connfdp < 0 && errno != EINTR) terminate(EXIT_FAILURE);
+        if(*connfdp < 0) break;
         Pthread_create(&tid, NULL, thread, connfdp);
     }
-
-    fprintf(stderr, "You have to finish implementing main() "
-	    "before the PBX server will function.\n");
-
-    terminate(EXIT_FAILURE);
+    Close(listenfd);
+    terminate(EXIT_SUCCESS);
 }
 
 /*
@@ -84,7 +84,7 @@ static void terminate(int status) {
     debug("Shutting down PBX...\n");
     pbx_shutdown(pbx);
     debug("PBX server terminating\n");
-    exit(status);
+    pthread_exit(NULL);
 }
 
 /*
@@ -92,7 +92,7 @@ static void terminate(int status) {
  * SIGHUP signal, it terminates the server cleanly.
  */
 static void sighup_handler(int sig) {
-    terminate(EXIT_SUCCESS);
+    sighup_flag = 1;
 }
 
 /*
