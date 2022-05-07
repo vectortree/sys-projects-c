@@ -38,9 +38,10 @@ TU *tu_init(int fd) {
     sprintf(num, " %d", tu->fd);
     tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
     strcat(tu_buf, num);
-    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 2);
-    strcat(tu_buf, "\n");
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 3);
+    strcat(tu_buf, EOL);
     Write(tu->fd, tu_buf, strlen(tu_buf));
+    Free(tu_buf);
     return tu;
 }
 
@@ -71,10 +72,19 @@ void tu_unref(TU *tu, char *reason) {
     // TO BE IMPLEMENTED
     if(tu == NULL) return;
     P(&tu->mutex);
+    if(tu->ref_count < 0) {
+        V(&tu->mutex);
+        return;
+    }
     --tu->ref_count;
-    if(tu->ref_count == 0) Free(tu);
-    if(reason != NULL) debug("tu_unref: %s\n", reason);
+    int ref_count = tu->ref_count;
+    debug("tu_unref: Reference count is %d\n", ref_count);
     V(&tu->mutex);
+    if(ref_count == 0) {
+        sem_destroy(&tu->mutex);
+        Free(tu);
+    }
+    if(reason != NULL) debug("tu_unref: %s\n", reason);
 }
 
 /*
@@ -166,11 +176,6 @@ int tu_dial(TU *tu, TU *target) {
     if(target == NULL && tu->state == TU_DIAL_TONE) {
         tu->state = TU_ERROR;
     }
-    else if(target == NULL) {
-        debug("tu_dial");
-        V(&tu->mutex);
-        return -1;
-    }
     char target_state_changed = 0;
     if(tu->state == TU_DIAL_TONE) {
         if(tu != target) P(&target->mutex);
@@ -205,9 +210,10 @@ int tu_dial(TU *tu, TU *target) {
         tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
         strcat(tu_buf, num);
     }
-    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 2);
-    strcat(tu_buf, "\n");
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 3);
+    strcat(tu_buf, EOL);
     Write(tu->fd, tu_buf, strlen(tu_buf));
+    Free(tu_buf);
 
     if(target_state_changed) {
         P(&target->mutex);
@@ -221,9 +227,10 @@ int tu_dial(TU *tu, TU *target) {
             target_buf = Realloc(target_buf, strlen(target_buf) + strlen(num) + 1);
             strcat(target_buf, num);
         }
-        target_buf = Realloc(target_buf, strlen(target_buf) + 2);
-        strcat(target_buf, "\n");
+        target_buf = Realloc(target_buf, strlen(target_buf) + 3);
+        strcat(target_buf, EOL);
         Write(target->fd, target_buf, strlen(target_buf));
+        Free(target_buf);
         V(&target->mutex);
     }
     if(tu->state == TU_ERROR) {
@@ -283,9 +290,10 @@ int tu_pickup(TU *tu) {
         tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
         strcat(tu_buf, num);
     }
-    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 2);
-    strcat(tu_buf, "\n");
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 3);
+    strcat(tu_buf, EOL);
     Write(tu->fd, tu_buf, strlen(tu_buf));
+    Free(tu_buf);
     if(peer_state_changed) {
         P(&tu->peer->mutex);
         char *peer_buf = Malloc(strlen(tu_state_names[tu->peer->state]) + 1);
@@ -297,9 +305,10 @@ int tu_pickup(TU *tu) {
             peer_buf = Realloc(peer_buf, strlen(peer_buf) + strlen(num) + 1);
             strcat(peer_buf, num);
         }
-        peer_buf = Realloc(peer_buf, strlen(peer_buf) + 2);
-        strcat(peer_buf, "\n");
+        peer_buf = Realloc(peer_buf, strlen(peer_buf) + 3);
+        strcat(peer_buf, EOL);
         Write(tu->peer->fd, peer_buf, strlen(peer_buf));
+        Free(peer_buf);
         V(&tu->peer->mutex);
     }
     if(tu->state == TU_ERROR) {
@@ -338,6 +347,7 @@ int tu_hangup(TU *tu) {
         return -1;
     }
     P(&tu->mutex);
+    debug("tu_hangup: Reference count is %d\n", tu->ref_count);
     char peer_state_changed = 0;
     char set_to_null = 0;
     if(tu->state == TU_CONNECTED || tu->state == TU_RINGING) {
@@ -362,6 +372,7 @@ int tu_hangup(TU *tu) {
         peer_state_changed = 1;
         tu->peer->state = TU_ON_HOOK;
         V(&tu->peer->mutex);
+        set_to_null = 1;
     }
     else if(tu->state == TU_DIAL_TONE || tu->state == TU_BUSY_SIGNAL || tu->state == TU_ERROR) {
         tu->state = TU_ON_HOOK;
@@ -375,9 +386,10 @@ int tu_hangup(TU *tu) {
         tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
         strcat(tu_buf, num);
     }
-    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 2);
-    strcat(tu_buf, "\n");
-    Write(tu->fd, tu_buf, strlen(tu_buf));
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 3);
+    strcat(tu_buf, EOL);
+    if(write(tu->fd, tu_buf, strlen(tu_buf)) < 0 && errno != EPIPE) unix_error("Write error");
+    Free(tu_buf);
     if(peer_state_changed) {
         if(tu->peer == NULL) {
             debug("tu_hangup");
@@ -393,9 +405,10 @@ int tu_hangup(TU *tu) {
             peer_buf = Realloc(peer_buf, strlen(peer_buf) + strlen(num) + 1);
             strcat(peer_buf, num);
         }
-        peer_buf = Realloc(peer_buf, strlen(peer_buf) + 2);
-        strcat(peer_buf, "\n");
-        Write(tu->peer->fd, peer_buf, strlen(peer_buf));
+        peer_buf = Realloc(peer_buf, strlen(peer_buf) + 3);
+        strcat(peer_buf, EOL);
+        if(write(tu->peer->fd, peer_buf, strlen(peer_buf)) < 0 && errno != EPIPE) unix_error("Write error");
+        Free(peer_buf);
         V(&tu->peer->mutex);
     }
     if(tu->state == TU_ERROR) {
@@ -403,11 +416,19 @@ int tu_hangup(TU *tu) {
         return -1;
     }
     if(set_to_null) {
+        debug("1");
+        tu_unref(tu->peer, "tu_hangup");
+        debug("2");
+        V(&tu->mutex);
+        tu_unref(tu, "tu_hangup");
+        debug("3");
+        P(&tu->mutex);
         P(&tu->peer->mutex);
         tu->peer->peer = NULL;
         V(&tu->peer->mutex);
         tu->peer = NULL;
     }
+    debug("End of tu_hangup\n");
     V(&tu->mutex);
     return 0;
 }
@@ -451,16 +472,18 @@ int tu_chat(TU *tu, char *msg) {
         tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
         strcat(tu_buf, num);
     }
-    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 2);
-    strcat(tu_buf, "\n");
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 3);
+    strcat(tu_buf, EOL);
     Write(tu->fd, tu_buf, strlen(tu_buf));
+    Free(tu_buf);
     char *msg_buf = Malloc(strlen("CHAT ") + 1);
     strcpy(msg_buf, "CHAT ");
     msg_buf = Realloc(msg_buf, strlen(msg_buf) + strlen(msg) + 1);
     strcat(msg_buf, msg);
-    msg_buf = Realloc(msg_buf, strlen(msg_buf) + 2);
-    strcat(msg_buf, "\n");
+    msg_buf = Realloc(msg_buf, strlen(msg_buf) + 3);
+    strcat(msg_buf, EOL);
     Write(tu->peer->fd, msg_buf, strlen(msg_buf));
+    Free(msg_buf);
     V(&tu->mutex);
     V(&tu->peer->mutex);
     return 0;

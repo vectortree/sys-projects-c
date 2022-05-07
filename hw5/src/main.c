@@ -11,6 +11,7 @@ static void sighup_handler(int sig);
 static void *thread(void *vargp);
 
 static volatile sig_atomic_t sighup_flag = 0;
+static int *connfdp;
 
 /*
  * "PBX" telephone exchange simulation.
@@ -57,7 +58,7 @@ int main(int argc, char* argv[]){
     // NOTE: We are allowed to use code snippets from the textbook and/or slides.
     // This is for setting up the server socket and entering a loop
     // to accept connections on this socket.
-    int listenfd, *connfdp;
+    int listenfd;
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
     pthread_t tid;
@@ -82,6 +83,7 @@ int main(int argc, char* argv[]){
  */
 static void terminate(int status) {
     debug("Shutting down PBX...\n");
+    Free(connfdp);
     pbx_shutdown(pbx);
     debug("PBX server terminating\n");
     pthread_exit(NULL);

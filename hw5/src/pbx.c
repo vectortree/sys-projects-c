@@ -17,7 +17,6 @@ struct pbx_client {
 
 struct pbx {
     sem_t w;
-    sem_t lock;
     sem_t mutex;
     int size;
     struct pbx_client *registry;
@@ -34,7 +33,6 @@ PBX *pbx_init() {
     if(pbx == NULL) return NULL;
     Sem_init(&pbx->mutex, 0, 1);
     Sem_init(&pbx->w, 0, 1);
-    Sem_init(&pbx->lock, 0, 1);
     pbx->size = 0;
     pbx->registry = Malloc(sizeof(struct pbx_client));
     if(pbx->registry == NULL) return NULL;
@@ -56,24 +54,18 @@ PBX *pbx_init() {
 void pbx_shutdown(PBX *pbx) {
     // TO BE IMPLEMENTED
     if(pbx == NULL || pbx->registry == NULL) return;
-    P(&pbx->lock);
+    P(&pbx->mutex);
     struct pbx_client *node = pbx->registry->next;
     while(node != pbx->registry) {
         shutdown(node->ext, SHUT_RDWR);
         node = node->next;
     }
-    V(&pbx->lock);
-    node = pbx->registry->next;
-    while(node != pbx->registry) {
-        struct pbx_client *temp = node;
-        node->prev->next = node->next;
-        node->next->prev = node->prev;
-        tu_unref(node->tu, "pbx_shutdown");
-        node = node->next;
-        Free(temp);
-    }
+    debug("pbx_shutdown: (1) Thread count is %d\n", pbx->size);
     V(&pbx->mutex);
-    sem_destroy(&pbx->lock);
+    P(&pbx->w);
+    debug("pbx_shutdown: (2) Thread count is %d\n", pbx->size);
+    //while(pbx->size > 0);
+    V(&pbx->w);
     sem_destroy(&pbx->mutex);
     sem_destroy(&pbx->w);
     Free(pbx->registry);
@@ -144,6 +136,10 @@ int pbx_unregister(PBX *pbx, TU *tu) {
         V(&pbx->mutex);
         return -1;
     }
+    if(tu_hangup(tu) < 0) {
+        V(&pbx->mutex);
+        return -1;
+    }
     struct pbx_client *node = pbx->registry->next;
     char flag = 0;
     while(node != pbx->registry) {
@@ -151,6 +147,8 @@ int pbx_unregister(PBX *pbx, TU *tu) {
             flag = 1;
             node->prev->next = node->next;
             node->next->prev = node->prev;
+            tu_unref(tu, "pbx_unregister");
+            Free(node);
             break;
         }
         node = node->next;
@@ -159,11 +157,6 @@ int pbx_unregister(PBX *pbx, TU *tu) {
         V(&pbx->mutex);
         return -1;
     }
-    if(tu_hangup(tu) < 0) {
-        V(&pbx->mutex);
-        return -1;
-    }
-    tu_unref(tu, "pbx_unregister");
     --pbx->size;
     if(pbx->size == 0) V(&pbx->w);
     V(&pbx->mutex);

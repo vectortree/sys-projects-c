@@ -30,24 +30,23 @@ void *pbx_client_service(void *arg) {
     // The thread should enter a service loop in which it repeatedly
     // receives a message sent by the client, parses the message, and carries
     // out the specified command.
-    char *msg;
+    char *msg = NULL;
     size_t read_buf_size, msg_size, alloc_size;
     while(1) {
-        alloc_size = 1000;
+        alloc_size = 1;
         msg = Malloc(alloc_size);
         msg_size = 0;
-        char read_buf[1000];
-        while((read_buf_size = Read(connfd, read_buf, 1000)) > 0) {
-            char *end_of_line = strstr(read_buf, EOL);
-            if(end_of_line != NULL && end_of_line != read_buf)
-                read_buf_size = end_of_line - read_buf;
-            if(alloc_size - msg_size < read_buf_size) {
-                msg = Realloc(msg, msg_size + read_buf_size);
-                alloc_size = msg_size + read_buf_size;
+        char read_buf;
+        while((read_buf_size = Read(connfd, &read_buf, 1)) > 0) {
+            if(read_buf == '\n') break;
+            if(read_buf != '\r' && read_buf != '\n') {
+                if(alloc_size - msg_size < read_buf_size) {
+                    msg = Realloc(msg, 2 * msg_size + read_buf_size);
+                    alloc_size = 2 * msg_size + read_buf_size;
+                }
+                strncpy(msg + msg_size, &read_buf, read_buf_size);
+                msg_size += read_buf_size;
             }
-            strncpy(msg + msg_size, read_buf, read_buf_size);
-            msg_size += read_buf_size;
-            if(end_of_line != NULL) break;
         }
         if(read_buf_size == 0) break;
         msg = Realloc(msg, msg_size + 1);
@@ -83,9 +82,15 @@ void *pbx_client_service(void *arg) {
         }
         debug("%s\n", msg);
         Free(msg);
+        msg = NULL;
     }
     debug("Unregistering client service thread (ext: %d)...\n", connfd);
+    if(msg != NULL) {
+        Free(msg);
+        msg = NULL;
+    }
     pbx_unregister(pbx, tu);
+    //tu_unref(tu, "pbx_client_service");
     Close(connfd);
     return NULL;
 }
