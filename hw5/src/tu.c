@@ -32,6 +32,15 @@ TU *tu_init(int fd) {
     tu->state = TU_ON_HOOK;
     tu->ref_count = 0;
     Sem_init(&tu->mutex, 0, 1);
+    char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
+    strcpy(tu_buf, tu_state_names[tu->state]);
+    char num[12];
+    sprintf(num, " %d", tu->fd);
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
+    strcat(tu_buf, num);
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + 2);
+    strcat(tu_buf, "\n");
+    Write(tu->fd, tu_buf, strlen(tu_buf));
     return tu;
 }
 
@@ -154,16 +163,16 @@ int tu_dial(TU *tu, TU *target) {
         return -1;
     }
     P(&tu->mutex);
+    if(target == NULL && tu->state == TU_DIAL_TONE) {
+        tu->state = TU_ERROR;
+    }
+    else if(target == NULL) {
+        debug("tu_dial");
+        V(&tu->mutex);
+        return -1;
+    }
     char target_state_changed = 0;
     if(tu->state == TU_DIAL_TONE) {
-        if(target == NULL && tu->state == TU_DIAL_TONE) {
-            tu->state = TU_ERROR;
-        }
-        else if(target == NULL) {
-            debug("tu_dial");
-            V(&tu->mutex);
-            return -1;
-        }
         if(tu != target) P(&target->mutex);
         if(tu == target || target->peer != NULL || target->state != TU_ON_HOOK) {
             if(tu == target) debug("tu == target");
@@ -185,7 +194,7 @@ int tu_dial(TU *tu, TU *target) {
             target->peer = tu;
             debug("tu_dial: Connecting ext %d to %d\n", tu->fd, target->fd);
         }
-        V(&target->mutex);
+        if(tu != target) V(&target->mutex);
     }
     char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
     strcpy(tu_buf, tu_state_names[tu->state]);
