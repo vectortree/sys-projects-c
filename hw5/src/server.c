@@ -90,7 +90,7 @@ void *pbx_client_service(void *arg) {
         msg = NULL;
     }
     pbx_unregister(pbx, tu);
-    //tu_unref(tu, "pbx_client_service");
+    tu_unref(tu, "pbx_client_service");
     Close(connfd);
     return NULL;
 }

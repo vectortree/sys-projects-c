@@ -131,15 +131,18 @@ int pbx_register(PBX *pbx, TU *tu, int ext) {
 int pbx_unregister(PBX *pbx, TU *tu) {
     // TO BE IMPLEMENTED
     if(pbx == NULL || tu == NULL) return -1;
+    debug("Called pbx_unregister\n");
     P(&pbx->mutex);
     if(pbx != NULL && pbx->size <= 0) {
         V(&pbx->mutex);
         return -1;
     }
+    debug("Calling tu_hangup in pbx_unregister\n");
     if(tu_hangup(tu) < 0) {
         V(&pbx->mutex);
         return -1;
     }
+    debug("Called tu_hangup in pbx_unregister\n");
     struct pbx_client *node = pbx->registry->next;
     char flag = 0;
     while(node != pbx->registry) {
@@ -160,6 +163,7 @@ int pbx_unregister(PBX *pbx, TU *tu) {
     --pbx->size;
     if(pbx->size == 0) V(&pbx->w);
     V(&pbx->mutex);
+    debug("Returning from pbx_unregister\n");
     return 0;
 }
 

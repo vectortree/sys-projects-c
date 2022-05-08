@@ -30,7 +30,7 @@ TU *tu_init(int fd) {
     tu->fd = fd;
     tu->peer = NULL;
     tu->state = TU_ON_HOOK;
-    tu->ref_count = 0;
+    tu->ref_count = 1;
     Sem_init(&tu->mutex, 0, 1);
     char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
     strcpy(tu_buf, tu_state_names[tu->state]);
@@ -173,11 +173,11 @@ int tu_dial(TU *tu, TU *target) {
         return -1;
     }
     P(&tu->mutex);
+    char target_state_changed = 0;
     if(target == NULL && tu->state == TU_DIAL_TONE) {
         tu->state = TU_ERROR;
     }
-    char target_state_changed = 0;
-    if(tu->state == TU_DIAL_TONE) {
+    else if(tu->state == TU_DIAL_TONE) {
         if(tu != target) P(&target->mutex);
         if(tu == target || target->peer != NULL || target->state != TU_ON_HOOK) {
             if(tu == target) debug("tu == target");
@@ -373,6 +373,7 @@ int tu_hangup(TU *tu) {
         tu->peer->state = TU_ON_HOOK;
         V(&tu->peer->mutex);
         set_to_null = 1;
+        debug("Set to null\n");
     }
     else if(tu->state == TU_DIAL_TONE || tu->state == TU_BUSY_SIGNAL || tu->state == TU_ERROR) {
         tu->state = TU_ON_HOOK;
@@ -388,7 +389,7 @@ int tu_hangup(TU *tu) {
     }
     tu_buf = Realloc(tu_buf, strlen(tu_buf) + 3);
     strcat(tu_buf, EOL);
-    if(write(tu->fd, tu_buf, strlen(tu_buf)) < 0 && errno != EPIPE) unix_error("Write error");
+    write(tu->fd, tu_buf, strlen(tu_buf));
     Free(tu_buf);
     if(peer_state_changed) {
         if(tu->peer == NULL) {
@@ -407,7 +408,7 @@ int tu_hangup(TU *tu) {
         }
         peer_buf = Realloc(peer_buf, strlen(peer_buf) + 3);
         strcat(peer_buf, EOL);
-        if(write(tu->peer->fd, peer_buf, strlen(peer_buf)) < 0 && errno != EPIPE) unix_error("Write error");
+        write(tu->peer->fd, peer_buf, strlen(peer_buf));
         Free(peer_buf);
         V(&tu->peer->mutex);
     }
@@ -427,6 +428,7 @@ int tu_hangup(TU *tu) {
         tu->peer->peer = NULL;
         V(&tu->peer->mutex);
         tu->peer = NULL;
+        debug("Finished setting to null\n");
     }
     debug("End of tu_hangup\n");
     V(&tu->mutex);
