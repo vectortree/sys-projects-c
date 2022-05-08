@@ -172,14 +172,26 @@ int tu_dial(TU *tu, TU *target) {
         debug("tu_dial");
         return -1;
     }
-    P(&tu->mutex);
+
+    char target_is_null = 0, target_is_equal = 0;
+    if(target == NULL) target_is_null = 1;
+    if(tu == target) target_is_equal = 1;
+    char lock_target_first = 0;
+    if(!target_is_null && target < tu) lock_target_first = 1;
+    if(lock_target_first) {
+        if(!target_is_null && !target_is_equal) P(&target->mutex);
+        P(&tu->mutex);
+    }
+    else {
+        P(&tu->mutex);
+        if(!target_is_null && !target_is_equal) P(&target->mutex);
+    }
     char target_state_changed = 0;
-    if(target == NULL && tu->state == TU_DIAL_TONE) {
+    if(target_is_null && tu->state == TU_DIAL_TONE) {
         tu->state = TU_ERROR;
     }
     else if(tu->state == TU_DIAL_TONE) {
-        if(tu != target) P(&target->mutex);
-        if(tu == target || target->peer != NULL || target->state != TU_ON_HOOK) {
+        if(target_is_equal || target->peer != NULL || target->state != TU_ON_HOOK) {
             if(tu == target) debug("tu == target");
             if(target->peer != NULL) debug("target->peer != NULL");
             if(target->state != TU_ON_HOOK) debug("target->state != TU_ON_HOOK");
@@ -187,19 +199,30 @@ int tu_dial(TU *tu, TU *target) {
         }
         else {
             target_state_changed = 1;
-            V(&tu->mutex);
+            if(lock_target_first) {
+                V(&tu->mutex);
+                V(&target->mutex);
+            }
+            else {
+                V(&target->mutex);
+                V(&tu->mutex);
+            }
             tu_ref(tu, "tu_dial");
-            P(&tu->mutex);
-            V(&target->mutex);
             tu_ref(target, "tu_dial");
-            P(&target->mutex);
+            if(lock_target_first) {
+                P(&target->mutex);
+                P(&tu->mutex);
+            }
+            else {
+                P(&tu->mutex);
+                P(&target->mutex);
+            }
             target->state = TU_RINGING;
             tu->state = TU_RING_BACK;
             tu->peer = target;
             target->peer = tu;
             debug("tu_dial: Connecting ext %d to %d\n", tu->fd, target->fd);
         }
-        if(tu != target) V(&target->mutex);
     }
     char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
     strcpy(tu_buf, tu_state_names[tu->state]);
@@ -216,7 +239,6 @@ int tu_dial(TU *tu, TU *target) {
     Free(tu_buf);
 
     if(target_state_changed) {
-        P(&target->mutex);
         debug("tu_dial: Notifying target (ext %d)...\n", target->fd);
         char *target_buf = Malloc(strlen(tu_state_names[target->state]) + 1);
         strcpy(target_buf, tu_state_names[target->state]);
@@ -231,14 +253,27 @@ int tu_dial(TU *tu, TU *target) {
         strcat(target_buf, EOL);
         Write(target->fd, target_buf, strlen(target_buf));
         Free(target_buf);
-        V(&target->mutex);
     }
     if(tu->state == TU_ERROR) {
-        V(&tu->mutex);
+        if(lock_target_first) {
+            V(&tu->mutex);
+            if(!target_is_null && !target_is_equal) V(&target->mutex);
+        }
+        else {
+            if(!target_is_null && !target_is_equal) V(&target->mutex);
+            V(&tu->mutex);
+        }
         debug("tu_dial");
         return -1;
     }
-    V(&tu->mutex);
+    if(lock_target_first) {
+        V(&tu->mutex);
+        if(!target_is_null && !target_is_equal) V(&target->mutex);
+    }
+    else {
+        if(!target_is_null && !target_is_equal) V(&target->mutex);
+        V(&tu->mutex);
+    }
     return 0;
 }
 
@@ -265,21 +300,33 @@ int tu_pickup(TU *tu) {
         debug("tu_pickup");
         return -1;
     }
+    char peer_is_null = 0;
     P(&tu->mutex);
+    if(tu->peer == NULL) peer_is_null = 1;
+    if(peer_is_null && tu->state == TU_RINGING) {
+        debug("tu_pickup");
+        V(&tu->mutex);
+        return -1;
+    }
+    V(&tu->mutex);
+    char lock_peer_first = 0;
+    if(!peer_is_null && tu->peer < tu) lock_peer_first = 1;
+    if(lock_peer_first) {
+        if(!peer_is_null) P(&tu->peer->mutex);
+        P(&tu->mutex);
+    }
+    else {
+        P(&tu->mutex);
+        if(!peer_is_null) P(&tu->peer->mutex);
+    }
     char peer_state_changed = 0;
     if(tu->state == TU_ON_HOOK) {
         tu->state = TU_DIAL_TONE;
     }
     else if(tu->state == TU_RINGING) {
-        if(tu->peer == NULL) {
-            debug("tu_pickup");
-            return -1;
-        }
-        P(&tu->peer->mutex);
         tu->state = TU_CONNECTED;
         peer_state_changed = 1;
         tu->peer->state = TU_CONNECTED;
-        V(&tu->peer->mutex);
     }
     char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
     strcpy(tu_buf, tu_state_names[tu->state]);
@@ -295,7 +342,6 @@ int tu_pickup(TU *tu) {
     Write(tu->fd, tu_buf, strlen(tu_buf));
     Free(tu_buf);
     if(peer_state_changed) {
-        P(&tu->peer->mutex);
         char *peer_buf = Malloc(strlen(tu_state_names[tu->peer->state]) + 1);
         strcpy(peer_buf, tu_state_names[tu->peer->state]);
         if(tu->peer->state == TU_ON_HOOK || tu->peer->state == TU_CONNECTED) {
@@ -309,13 +355,26 @@ int tu_pickup(TU *tu) {
         strcat(peer_buf, EOL);
         Write(tu->peer->fd, peer_buf, strlen(peer_buf));
         Free(peer_buf);
-        V(&tu->peer->mutex);
     }
     if(tu->state == TU_ERROR) {
-        V(&tu->mutex);
+        if(lock_peer_first) {
+            V(&tu->mutex);
+            if(!peer_is_null) V(&tu->peer->mutex);
+        }
+        else {
+            if(!peer_is_null) V(&tu->peer->mutex);
+            V(&tu->mutex);
+        }
         return -1;
     }
-    V(&tu->mutex);
+    if(lock_peer_first) {
+        V(&tu->mutex);
+        if(!peer_is_null) V(&tu->peer->mutex);
+    }
+    else {
+        if(!peer_is_null) V(&tu->peer->mutex);
+        V(&tu->mutex);
+    }
     return 0;
 }
 
@@ -346,32 +405,39 @@ int tu_hangup(TU *tu) {
         debug("tu_hangup");
         return -1;
     }
+    char peer_is_null = 0;
     P(&tu->mutex);
+    if(tu->peer == NULL) peer_is_null = 1;
+    if(peer_is_null && (tu->state == TU_CONNECTED || tu->state == TU_RINGING || tu->state == TU_RING_BACK)) {
+        debug("tu_hangup");
+        V(&tu->mutex);
+        return -1;
+    }
+    V(&tu->mutex);
+    char lock_peer_first = 0;
+    if(!peer_is_null && tu->peer < tu) lock_peer_first = 1;
+    if(lock_peer_first) {
+        if(!peer_is_null) P(&tu->peer->mutex);
+        P(&tu->mutex);
+    }
+    else {
+        P(&tu->mutex);
+        if(!peer_is_null) P(&tu->peer->mutex);
+    }
     debug("tu_hangup: Reference count is %d\n", tu->ref_count);
     char peer_state_changed = 0;
     char set_to_null = 0;
     if(tu->state == TU_CONNECTED || tu->state == TU_RINGING) {
-        if(tu->peer == NULL) {
-            debug("tu_hangup");
-            return -1;
-        }
         tu->state = TU_ON_HOOK;
         peer_state_changed = 1;
-        P(&tu->peer->mutex);
         tu->peer->state = TU_DIAL_TONE;
-        V(&tu->peer->mutex);
         set_to_null = 1;
+        debug("Set to null\n");
     }
     else if(tu->state == TU_RING_BACK) {
-        if(tu->peer == NULL) {
-            debug("tu_hangup");
-            return -1;
-        }
-        P(&tu->peer->mutex);
         tu->state = TU_ON_HOOK;
         peer_state_changed = 1;
         tu->peer->state = TU_ON_HOOK;
-        V(&tu->peer->mutex);
         set_to_null = 1;
         debug("Set to null\n");
     }
@@ -392,11 +458,11 @@ int tu_hangup(TU *tu) {
     write(tu->fd, tu_buf, strlen(tu_buf));
     Free(tu_buf);
     if(peer_state_changed) {
-        if(tu->peer == NULL) {
+        if(peer_is_null) {
             debug("tu_hangup");
+            V(&tu->mutex);
             return -1;
         }
-        P(&tu->peer->mutex);
         char *peer_buf = Malloc(strlen(tu_state_names[tu->peer->state]) + 1);
         strcpy(peer_buf, tu_state_names[tu->peer->state]);
         if(tu->peer->state == TU_ON_HOOK || tu->peer->state == TU_CONNECTED) {
@@ -410,28 +476,61 @@ int tu_hangup(TU *tu) {
         strcat(peer_buf, EOL);
         write(tu->peer->fd, peer_buf, strlen(peer_buf));
         Free(peer_buf);
-        V(&tu->peer->mutex);
     }
     if(tu->state == TU_ERROR) {
-        V(&tu->mutex);
+        if(lock_peer_first) {
+            V(&tu->mutex);
+            if(!peer_is_null) V(&tu->peer->mutex);
+        }
+        else {
+            if(!peer_is_null) V(&tu->peer->mutex);
+            V(&tu->mutex);
+        }
         return -1;
     }
     if(set_to_null) {
-        debug("1");
+        if(lock_peer_first) {
+            V(&tu->mutex);
+            if(!peer_is_null) V(&tu->peer->mutex);
+        }
+        else {
+            if(!peer_is_null) V(&tu->peer->mutex);
+            V(&tu->mutex);
+        }
         tu_unref(tu->peer, "tu_hangup");
-        debug("2");
-        V(&tu->mutex);
         tu_unref(tu, "tu_hangup");
-        debug("3");
-        P(&tu->mutex);
-        P(&tu->peer->mutex);
+        if(lock_peer_first) {
+            if(!peer_is_null) P(&tu->peer->mutex);
+            P(&tu->mutex);
+        }
+        else {
+            P(&tu->mutex);
+            if(!peer_is_null) P(&tu->peer->mutex);
+        }
+        sem_t *mt = &tu->peer->mutex;
         tu->peer->peer = NULL;
-        V(&tu->peer->mutex);
         tu->peer = NULL;
         debug("Finished setting to null\n");
+        if(lock_peer_first) {
+            V(&tu->mutex);
+            V(mt);
+        }
+        else {
+            V(mt);
+            V(&tu->mutex);
+        }
+        debug("End of tu_hangup\n");
+        return 0;
+    }
+    if(lock_peer_first) {
+        V(&tu->mutex);
+        if(!peer_is_null) V(&tu->peer->mutex);
+    }
+    else {
+        if(!peer_is_null) V(&tu->peer->mutex);
+        V(&tu->mutex);
     }
     debug("End of tu_hangup\n");
-    V(&tu->mutex);
     return 0;
 }
 
@@ -454,15 +553,34 @@ int tu_chat(TU *tu, char *msg) {
         debug("tu_chat");
         return -1;
     }
-    if(tu->peer == NULL) {
+    char peer_is_null = 0;
+    P(&tu->mutex);
+    if(tu->peer == NULL) peer_is_null = 1;
+    if(peer_is_null) {
         debug("tu_chat");
+        V(&tu->mutex);
         return -1;
     }
-    P(&tu->mutex);
-    P(&tu->peer->mutex);
+    V(&tu->mutex);
+    char lock_peer_first = 0;
+    if(!peer_is_null && tu->peer < tu) lock_peer_first = 1;
+    if(lock_peer_first) {
+        if(!peer_is_null) P(&tu->peer->mutex);
+        P(&tu->mutex);
+    }
+    else {
+        P(&tu->mutex);
+        if(!peer_is_null) P(&tu->peer->mutex);
+    }
     if(tu->state != TU_CONNECTED) {
-        V(&tu->mutex);
-        V(&tu->peer->mutex);
+        if(lock_peer_first) {
+            V(&tu->mutex);
+            if(!peer_is_null) V(&tu->peer->mutex);
+        }
+        else {
+            if(!peer_is_null) V(&tu->peer->mutex);
+            V(&tu->mutex);
+        }
         return -1;
     }
     char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
@@ -486,7 +604,13 @@ int tu_chat(TU *tu, char *msg) {
     strcat(msg_buf, EOL);
     Write(tu->peer->fd, msg_buf, strlen(msg_buf));
     Free(msg_buf);
-    V(&tu->mutex);
-    V(&tu->peer->mutex);
+    if(lock_peer_first) {
+        V(&tu->mutex);
+        if(!peer_is_null) V(&tu->peer->mutex);
+    }
+    else {
+        if(!peer_is_null) V(&tu->peer->mutex);
+        V(&tu->mutex);
+    }
     return 0;
 }

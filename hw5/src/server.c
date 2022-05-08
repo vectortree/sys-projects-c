@@ -87,6 +87,7 @@ void *pbx_client_service(void *arg) {
     debug("Unregistering client service thread (ext: %d)...\n", connfd);
     if(msg != NULL) {
         Free(msg);
+        debug("Freed the message\n");
         msg = NULL;
     }
     pbx_unregister(pbx, tu);
