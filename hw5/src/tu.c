@@ -27,6 +27,7 @@ TU *tu_init(int fd) {
     // TO BE IMPLEMENTED
     TU *tu = Malloc(sizeof(TU));
     if(tu == NULL) return NULL;
+    debug("Reached tu_init\n");
     tu->fd = fd;
     tu->peer = NULL;
     tu->state = TU_ON_HOOK;
@@ -172,7 +173,6 @@ int tu_dial(TU *tu, TU *target) {
         debug("tu_dial");
         return -1;
     }
-
     char target_is_null = 0, target_is_equal = 0;
     if(target == NULL) target_is_null = 1;
     if(tu == target) target_is_equal = 1;
@@ -556,8 +556,8 @@ int tu_chat(TU *tu, char *msg) {
     char peer_is_null = 0;
     P(&tu->mutex);
     if(tu->peer == NULL) peer_is_null = 1;
-    if(peer_is_null) {
-        debug("tu_chat");
+    if(peer_is_null && tu->state == TU_CONNECTED) {
+        debug("tu_chat error");
         V(&tu->mutex);
         return -1;
     }
@@ -573,6 +573,18 @@ int tu_chat(TU *tu, char *msg) {
         if(!peer_is_null) P(&tu->peer->mutex);
     }
     if(tu->state != TU_CONNECTED) {
+        char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
+        strcpy(tu_buf, tu_state_names[tu->state]);
+        if(tu->state == TU_ON_HOOK) {
+            char num[12];
+            sprintf(num, " %d", tu->fd);
+            tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
+            strcat(tu_buf, num);
+        }
+        tu_buf = Realloc(tu_buf, strlen(tu_buf) + 3);
+        strcat(tu_buf, EOL);
+        Write(tu->fd, tu_buf, strlen(tu_buf));
+        Free(tu_buf);
         if(lock_peer_first) {
             V(&tu->mutex);
             if(!peer_is_null) V(&tu->peer->mutex);
@@ -585,13 +597,10 @@ int tu_chat(TU *tu, char *msg) {
     }
     char *tu_buf = Malloc(strlen(tu_state_names[tu->state]) + 1);
     strcpy(tu_buf, tu_state_names[tu->state]);
-    if(tu->state == TU_ON_HOOK || tu->state == TU_CONNECTED) {
-        char num[12];
-        if(tu->state == TU_ON_HOOK) sprintf(num, " %d", tu->fd);
-        else sprintf(num, " %d", tu->peer->fd);
-        tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
-        strcat(tu_buf, num);
-    }
+    char num[12];
+    sprintf(num, " %d", tu->peer->fd);
+    tu_buf = Realloc(tu_buf, strlen(tu_buf) + strlen(num) + 1);
+    strcat(tu_buf, num);
     tu_buf = Realloc(tu_buf, strlen(tu_buf) + 3);
     strcat(tu_buf, EOL);
     Write(tu->fd, tu_buf, strlen(tu_buf));

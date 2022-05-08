@@ -8,6 +8,7 @@
 #include "pbx.h"
 #include "server.h"
 #include "csapp.h"
+#include "global_mutex.h"
 
 /*
  * Thread function for the thread that handles interaction with a client TU.
@@ -18,6 +19,7 @@ void *pbx_client_service(void *arg) {
     // TO BE IMPLEMENTED
     // NOTE: We are allowed to use code snippets from the textbook and/or slides.
     // Retrieve the connection file descriptor (to communicate with the client).
+    P(&global_mutex);
     int connfd = *((int *)arg);
     // Free the argument pointer.
     Free(arg);
@@ -27,6 +29,7 @@ void *pbx_client_service(void *arg) {
     TU *tu = tu_init(connfd);
     // Register the TU with the PBX server under a particular extension number (i.e., connfd).
     pbx_register(pbx, tu, connfd);
+    V(&global_mutex);
     // The thread should enter a service loop in which it repeatedly
     // receives a message sent by the client, parses the message, and carries
     // out the specified command.
@@ -38,7 +41,11 @@ void *pbx_client_service(void *arg) {
         msg_size = 0;
         char read_buf;
         while((read_buf_size = Read(connfd, &read_buf, 1)) > 0) {
-            if(read_buf == '\n') break;
+            P(&global_mutex);
+            if(read_buf == '\n') {
+                V(&global_mutex);
+                break;
+            }
             if(read_buf != '\r' && read_buf != '\n') {
                 if(alloc_size - msg_size < read_buf_size) {
                     msg = Realloc(msg, 2 * msg_size + read_buf_size);
@@ -47,12 +54,19 @@ void *pbx_client_service(void *arg) {
                 strncpy(msg + msg_size, &read_buf, read_buf_size);
                 msg_size += read_buf_size;
             }
+            V(&global_mutex);
         }
         if(read_buf_size == 0) break;
+        P(&global_mutex);
         msg = Realloc(msg, msg_size + 1);
         msg[msg_size] = '\0';
         char *first_token = strtok(msg, " \t");
-        if(first_token == NULL) continue;
+        if(first_token == NULL) {
+            Free(msg);
+            msg = NULL;
+            V(&global_mutex);
+            continue;
+        }
         if(strcmp(first_token, tu_command_names[TU_PICKUP_CMD]) == 0) {
             tu_pickup(tu);
         }
@@ -83,7 +97,9 @@ void *pbx_client_service(void *arg) {
         debug("%s\n", msg);
         Free(msg);
         msg = NULL;
+        V(&global_mutex);
     }
+    P(&global_mutex);
     debug("Unregistering client service thread (ext: %d)...\n", connfd);
     if(msg != NULL) {
         Free(msg);
@@ -93,5 +109,6 @@ void *pbx_client_service(void *arg) {
     pbx_unregister(pbx, tu);
     tu_unref(tu, "pbx_client_service");
     Close(connfd);
+    V(&global_mutex);
     return NULL;
 }

@@ -5,6 +5,7 @@
 #include "server.h"
 #include "debug.h"
 #include "csapp.h"
+#include "global_mutex.h"
 
 static void terminate(int status);
 static void sighup_handler(int sig);
@@ -65,6 +66,7 @@ int main(int argc, char* argv[]){
 
     listenfd = Open_listenfd(port);
     if(listenfd < 0) terminate(EXIT_FAILURE);
+    Sem_init(&global_mutex, 0, 1);
     while(!sighup_flag) {
         clientlen = sizeof(struct sockaddr_storage);
         connfdp = Malloc(sizeof(int));
@@ -75,6 +77,7 @@ int main(int argc, char* argv[]){
         Pthread_create(&tid, NULL, thread, connfdp);
     }
     Close(listenfd);
+    sem_destroy(&global_mutex);
     terminate(EXIT_SUCCESS);
 }
 
