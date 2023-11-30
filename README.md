@@ -62,16 +62,16 @@ Here is the option syntax of the improved ```par```:
 A C dynamic memory allocator package for the x86-64 architecture with the following features:
 
 - Free lists segregated by size class, using first-fit policy within each size class,
-  augmented with a set of "quick lists" holding small blocks segregated by size
+  augmented with a set of "quick lists" holding small blocks segregated by size.
 - Immediate coalescing of large blocks on free with adjacent free blocks;
-  delayed coalescing on free of small blocks
+  delayed coalescing on free of small blocks.
 - Boundary tags to support efficient coalescing, with footer optimization that allows
-    footers to be omitted from allocated blocks
-- Block splitting without creating splinters
-- Allocated blocks aligned to "double memory row" (16-byte) boundaries
-- Free lists maintained using **last in first out (LIFO)** discipline
+    footers to be omitted from allocated blocks.
+- Block splitting without creating splinters.
+- Allocated blocks aligned to "double memory row" (16-byte) boundaries.
+- Free lists maintained using **last in first out (LIFO)** discipline.
 - Obfuscation of block headers and footers to detect heap corruption and attempts to
-  free blocks not previously obtained via allocation
+  free blocks not previously obtained via allocation.
 
 The various header and footer formats are specified below:
 
@@ -240,25 +240,25 @@ A PBX is a private telephone exchange that is used within a business or other or
 
 The PBX system provides the following basic capabilities:
 
-  * *Register* a TU as an extension in the system
-  * *Unregister* a previously registered extension
+  * *Register* a TU as an extension in the system.
+  * *Unregister* a previously registered extension.
 
 Once a TU has been registered, the following operations are available to perform on it:
 
-  * *Pick up* the handset of a registered TU (If the TU was ringing,
-then a connection is established with a calling TU.  If the TU was not
-ringing, then the user hears a dial tone over the receiver.)
-  * *Hang up* the handset of a registered TU (Any call in progress is
-disconnected.)
-  * *Dial* an extension on a registered TU (If the dialed extension is
-currently "on hook" [*i.e.,* the telephone handset is on the switchhook],
+  * *Pick up* the handset of a registered TU. If the TU was ringing,
+then a connection is established with a calling TU. If the TU was not
+ringing, then the user hears a dial tone over the receiver.
+  * *Hang up* the handset of a registered TU. Any call in progress is
+disconnected.
+  * *Dial* an extension on a registered TU. If the dialed extension is
+currently "on hook" (*i.e.,* the telephone handset is on the switchhook),
 then the dialed extension starts to ring, indicating the presence of an
 incoming call, and a "ring back" notification is played over the receiver
-of the calling extension.  Otherwise, if the dialed extension is "off hook",
+of the calling extension. Otherwise, if the dialed extension is "off hook",
 then a "busy signal" notification is played over the receiver of the
-calling extension.)
+calling extension.
   * *Chat* over the connection made when one TU has dialed an extension
-and the called extension has picked up
+and the called extension has picked up.
 
 When the server is started, a **master server** thread sets up a socket on
 which to listen for connections from clients (*i.e.,* the TUs).  When a network
@@ -279,19 +279,18 @@ from assigned extension numbers to clients.
 It also maintains, for each registered client, information about the current
 state of the TU for that client.  The following are the possible states of a TU:
 
-  * **On hook**: The TU handset is on the switchhook and the TU is idle
+  * **On hook**: The TU handset is on the switchhook and the TU is idle.
   * **Ringing**: The TU handset is on the switchhook and the TU ringer is
-active, indicating the presence of an incoming call
-  * **Dial tone**:  The TU handset is off the switchhook and a dial tone is
-being played over the TU receiver
-  * **Ring back**:  The TU handset is off the switchhook and a "ring back"
-signal is being played over the TU receiver
-  * **Busy signal**:  The TU handset is off the switchhook and a "busy"
-signal is being played over the TU receiver
-  * **Connected**:  The TU handset is off the switchhook and a connection has been
-established between this TU and the TU at another extension (In this state
+active, indicating the presence of an incoming call.
+  * **Dial tone**: The TU handset is off the switchhook and a dial tone is
+being played over the TU receiver.
+  * **Ring back**: The TU handset is off the switchhook and a "ring back"
+signal is being played over the TU receiver.
+  * **Busy signal**: The TU handset is off the switchhook and a "busy"
+signal is being played over the TU receiver.
+  * **Connected**: The TU handset is off the switchhook and a connection has been
+established between this TU and the TU at another extension. In this state
 it is possible for users at the two TUs to "chat" with each other over the
-connection.)
-  * **Error**:  The TU handset is off the switchhook and an "error" signal
-is being played over the TU receiver
-
+connection.
+  * **Error**: The TU handset is off the switchhook and an "error" signal
+is being played over the TU receiver.
