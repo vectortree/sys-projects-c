@@ -1,4 +1,4 @@
-# Systems Fundamental Projects
+# Systems Fundamentals Projects
 
 Welcome :wave:! Here you will find all the assignments I completed as part of the systems fundamentals course at my university (Spring 2021).
 
