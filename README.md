@@ -29,7 +29,9 @@ USAGE: bin/argo [-h] [-c|-v] [-p|-p INDENT]
 </pre>
 
 ### 2. Par (```hw2```)
-An ***extended*** and ***debugged*** version of ```par```, a simple paragraph reformatter which was written by Adam M. Costello and posted to Usenet way back in 1993. There are several parameters that can be set which affect the result:  the width of the output text, the length of a "prefix" and a "suffix" to be prepended and appended to each output line, a parameter "hang", which affects the default value of "prefix", and a boolean parameter "last", which affects the way the last line of a paragraph is treated. Here is the option syntax of the improved ```par```:
+An ***extended*** and ***debugged*** version of ```par```, a simple paragraph reformatter which was written by Adam M. Costello and posted to Usenet way back in 1993. There are several parameters that can be set which affect the result:  the width of the output text, the length of a "prefix" and a "suffix" to be prepended and appended to each output line, a parameter "hang", which affects the default value of "prefix", and a boolean parameter "last", which affects the way the last line of a paragraph is treated.
+
+Here is the option syntax of the improved ```par```:
 - `--version` (long form only):
     Print the version number of the program.
 
